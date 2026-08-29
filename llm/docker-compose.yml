@@ -1,86 +1,62 @@
 version: '3.8'
 
 services:
-  freevps:
-    build: .
-    container_name: freevps-mark1.3
-    hostname: freevps-mark1-3
-    ports:
-      - "2222:22"     # SSH
-      - "8080:8080"   # Main Dashboard (Mikasa / Eren@Home$123)
-      - "7681:7681"   # ttyd Web Terminal
-      - "8081:8081"   # code-server VS Code
-    environment:
-      - VPS_USER=Mikasa
-      - VPS_PASS=Eren@Home$123
-      - PORT=8080
-      - OLLAMA_HOST=http://ollama:11434
-      - LITELLM_HOST=http://litellm:4000
-      - LLM_ROUTER_HOST=http://hermes-router:4001
-      - LITELLM_MASTER_KEY=sk-1234
-    volumes:
-      - vps_home:/home/mikasa
-      - vps_data:/app/data
-      - ./keepalive:/app/keepalive
-    restart: unless-stopped
-    stdin_open: true
-    tty: true
-    networks:
-      - vps-network
-      - llm-network
-    deploy:
-      resources:
-        limits:
-          cpus: '2'
-          memory: 4G
-        reservations:
-          cpus: '0.5'
-          memory: 512M
-
-  # Hermes LLM - Ollama (Selected for 24/7)
+  # Ollama - Runs Hermes models
   ollama:
     image: ollama/ollama:latest
     container_name: ollama-hermes
     hostname: ollama
     ports:
-      - "11434:11434"
+      - "11434:11434"  # Ollama API
     volumes:
       - ollama_data:/root/.ollama
-      - ./llm/ollama/entrypoint.sh:/entrypoint.sh
+      - ./ollama/entrypoint.sh:/entrypoint.sh
     environment:
       - OLLAMA_HOST=0.0.0.0:11434
       - OLLAMA_ORIGINS=*
-      - OLLAMA_MODELS=nous-hermes2,hermes3:3b
+      - OLLAMA_MODELS=/root/.ollama
     restart: unless-stopped
+    stdin_open: true
+    tty: true
+    # Health check for 24/7
     healthcheck:
       test: ["CMD", "curl", "-f", "http://localhost:11434/api/tags"]
       interval: 30s
       timeout: 10s
       retries: 3
       start_period: 60s
+    deploy:
+      resources:
+        limits:
+          cpus: '4'
+          memory: 8G
+        reservations:
+          cpus: '1'
+          memory: 2G
     networks:
       - llm-network
       - vps-network
-    profiles:
-      - llm
-      - full
 
-  # LiteLLM Proxy - Selected API Router for 24/7
+  # LiteLLM Proxy - LLM API Router (OpenAI compatible)
   litellm:
     image: ghcr.io/berriai/litellm:main-latest
     container_name: litellm-router
     hostname: litellm
     ports:
-      - "4000:4000"
+      - "4000:4000"  # LiteLLM Proxy API
     volumes:
-      - ./llm/litellm/litellm-config.yaml:/app/config.yaml
+      - ./litellm/litellm-config.yaml:/app/config.yaml
       - litellm_data:/app/data
     environment:
       - LITELLM_MASTER_KEY=sk-1234
       - LITELLM_SALT_KEY=sk-salt-1234
       - DATABASE_URL=sqlite:////app/data/litellm.db
       - OPENAI_API_KEY=${OPENAI_API_KEY:-}
-    command: --config /app/config.yaml --port 4000 --num_workers 2
+      - ANTHROPIC_API_KEY=${ANTHROPIC_API_KEY:-}
+      - GROQ_API_KEY=${GROQ_API_KEY:-}
+      - TOGETHER_API_KEY=${TOGETHER_API_KEY:-}
+      - LITELLM_LOG=INFO
+    command: --config /app/config.yaml --port 4000 --num_workers 2 --detailed_debug
     restart: unless-stopped
     depends_on:
       ollama:
@@ -91,28 +67,37 @@ services:
       timeout: 10s
       retries: 3
       start_period: 40s
+    deploy:
+      resources:
+        limits:
+          cpus: '2'
+          memory: 2G
+        reservations:
+          cpus: '0.5'
+          memory: 512M
     networks:
       - llm-network
       - vps-network
-    profiles:
-      - llm
-      - full
 
-  # Custom Hermes Router (lightweight fallback)
-  hermes-router:
+  # Custom Node.js Router (Fallback / Lightweight alternative to LiteLLM)
+  llm-router:
     build:
-      context: ./llm/router
+      context: ./router
       dockerfile: Dockerfile
     container_name: hermes-router
     hostname: hermes-router
     ports:
-      - "4001:4001"
+      - "4001:4001"  # Custom router API
     environment:
       - OLLAMA_HOST=http://ollama:11434
       - LITELLM_HOST=http://litellm:4000
       - PORT=4001
       - MASTER_KEY=sk-1234
       - VPS_USER=Mikasa
+      - VPS_PASS=Eren@Home$123
+    volumes:
+      - ./router:/app
+      - /app/node_modules
     restart: unless-stopped
     depends_on:
       - ollama
@@ -126,71 +111,50 @@ services:
       - llm-network
       - vps-network
     profiles:
-      - llm
       - custom-router
-      - full
 
-  # Open WebUI - Chat UI for Hermes
+  # Open WebUI - Chat UI for Hermes (Optional)
   open-webui:
     image: ghcr.io/open-webui/open-webui:main
     container_name: open-webui-hermes
+    hostname: open-webui
     ports:
-      - "3000:8080"
+      - "3000:8080"  # WebUI
     volumes:
       - open_webui_data:/app/backend/data
     environment:
       - OLLAMA_BASE_URL=http://ollama:11434
       - WEBUI_NAME=FreeVPS Hermes - Mikasa
+      - DEFAULT_USER_ROLE=user
       - ENABLE_SIGNUP=true
+      - WEBUI_AUTH_TRUSTED_EMAIL_HEADER=X-Forwarded-Email
     restart: unless-stopped
     depends_on:
       - ollama
+    healthcheck:
+      test: ["CMD", "curl", "-f", "http://localhost:8080/health"]
+      interval: 30s
+      timeout: 10s
+      retries: 3
     networks:
       - llm-network
       - vps-network
     profiles:
       - ui
-      - full
-
-  # Optional: Watchtower for auto-updates (keeps 24/7)
-  watchtower:
-    image: containrrr/watchtower
-    container_name: watchtower
-    volumes:
-      - /var/run/docker.sock:/var/run/docker.sock
-    command: --interval 3600 freevps-mark1.3 ollama-hermes litellm-router hermes-router
-    restart: unless-stopped
-    profiles:
-      - monitoring
-
-  # Optional: Uptime Kuma for monitoring 24/7 status
-  uptime-kuma:
-    image: louislam/uptime-kuma:1
-    container_name: uptime-kuma
-    ports:
-      - "3001:3001"
-    volumes:
-      - uptime-kuma:/app/data
-    restart: unless-stopped
-    profiles:
-      - monitoring
 
 volumes:
-  vps_home:
-    driver: local
-  vps_data:
-    driver: local
-  uptime-kuma:
   ollama_data:
     driver: local
   litellm_data:
     driver: local
   open_webui_data:
+    driver: local
 
 networks:
-  vps-network:
-    driver: bridge
-    name: vps-network
   llm-network:
     driver: bridge
     name: llm-network
+  vps-network:
+    driver: bridge
+    name: vps-network
+    external: false

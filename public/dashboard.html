@@ -64,6 +64,7 @@ body{background:#010409;color:#e6edf3;min-height:100vh}
     <div class="logo">FreeVPS Mark1.3</div>
     <div class="nav-links">
       <div class="nav-link active" data-tab="overview">Overview</div>
+      <div class="nav-link" data-tab="llm">🧠 Hermes LLM</div>
       <div class="nav-link" data-tab="terminal">Terminal</div>
       <div class="nav-link" data-tab="files">Files</div>
       <div class="nav-link" data-tab="processes">Processes</div>
@@ -176,6 +177,123 @@ Status: Online
       </div>
     </div>
   </div>
+
+  <!-- LLM Tab - Hermes + LiteLLM Router -->
+  <div id="llm" class="tab-content">
+    <div class="grid">
+      <div class="card">
+        <h3>🧠 Hermes LLM Status</h3>
+        <div style="margin-top:12px">
+          <div style="display:flex;gap:8px;flex-wrap:wrap;margin-bottom:12px">
+            <span class="badge" id="ollamaBadge">Ollama: Checking...</span>
+            <span class="badge" id="litellmBadge">LiteLLM: Checking...</span>
+            <span class="badge" id="routerBadge">Router: Checking...</span>
+          </div>
+          <div class="log" id="llmStatus" style="min-height:120px">Loading LLM status...</div>
+          <div style="display:grid;grid-template-columns:1fr 1fr;gap:8px;margin-top:12px">
+            <button class="btn btn-primary" onclick="refreshLLMStatus()">Refresh Status</button>
+            <button class="btn" onclick="pullHermesModel()">Pull Hermes Model</button>
+            <button class="btn" onclick="restartLLM()">Restart LLM</button>
+            <button class="btn" onclick="openLiteLLM()">LiteLLM UI</button>
+          </div>
+        </div>
+      </div>
+      <div class="card">
+        <h3>📦 Available Models</h3>
+        <div class="log" id="llmModels" style="min-height:120px">Loading models...</div>
+        <div style="margin-top:12px">
+          <h4 style="font-size:11px;color:#8b949e;margin-bottom:6px">SELECTED STACK</h4>
+          <div style="font-size:12px;line-height:1.6;color:#c9d1d9">
+            <b>Runner:</b> Ollama (lightweight, auto-restart, 24/7)<br>
+            <b>Router:</b> LiteLLM Proxy (OpenAI compatible, routing, fallback, health checks)<br>
+            <b>Why:</b> Best for 24/7 - production grade, load balancing, retry, auth, logging<br>
+            <b>Alternative considered:</b> vLLM (needs GPU), LocalAI (heavier), FastChat (complex)
+          </div>
+        </div>
+      </div>
+    </div>
+
+    <div class="terminal-wrap">
+      <div class="terminal-header"><h3>💬 Test Hermes Chat - OpenAI Compatible API</h3><div class="terminal-actions"><span class="badge badge-green" id="llmChatStatus">● Ready</span></div></div>
+      <div style="padding:16px">
+        <div style="display:flex;gap:8px;margin-bottom:12px">
+          <select id="llmModelSelect" style="padding:10px 14px;background:#010409;border:1px solid #30363d;border-radius:8px;color:#e6edf3;min-width:180px">
+            <option value="hermes">hermes (nous-hermes2)</option>
+            <option value="hermes3">hermes3 (8b)</option>
+            <option value="hermes3:3b">hermes3:3b (lightweight)</option>
+            <option value="openhermes">openhermes</option>
+            <option value="hermes-light">hermes-light (2b)</option>
+          </select>
+          <button class="btn" onclick="clearLLMChat()">Clear</button>
+          <button class="btn btn-primary" onclick="testLLM()">Test API</button>
+        </div>
+        <div class="cmd-input">
+          <input type="text" id="llmInput" placeholder="Ask Hermes anything... e.g. Explain 24/7 VPS setup" onkeydown="if(event.key==='Enter')sendLLMChat()">
+          <button class="btn btn-primary" onclick="sendLLMChat()">Send</button>
+        </div>
+        <div class="log" id="llmChatLog" style="margin-top:12px;min-height:200px;max-height:400px">Ready to chat with Hermes...
+
+Try: "Hello, who are you?" or "Explain how LiteLLM router works for 24/7"
+
+API Endpoints:
+- LiteLLM: http://localhost:4000/v1/chat/completions (Bearer sk-1234)
+- Custom Router: http://localhost:4001/v1/chat/completions
+- Ollama Direct: http://localhost:11434/api/chat
+
+OpenAI SDK:
+from openai import OpenAI
+client = OpenAI(base_url="http://localhost:4000/v1", api_key="sk-1234")
+response = client.chat.completions.create(model="hermes", messages=[{"role":"user","content":"Hello"}])
+</div>
+      </div>
+    </div>
+
+    <div class="grid">
+      <div class="card">
+        <h3>🔧 API Usage Examples</h3>
+        <div class="log" style="font-size:11px">curl http://localhost:4000/v1/chat/completions \
+  -H "Authorization: Bearer sk-1234" \
+  -H "Content-Type: application/json" \
+  -d '{
+    "model": "hermes",
+    "messages": [{"role":"user","content":"Hello"}]
+  }'
+
+# Python
+from openai import OpenAI
+client = OpenAI(base_url="http://localhost:4000/v1", api_key="sk-1234")
+resp = client.chat.completions.create(model="hermes", messages=[{"role":"user","content":"Hi"}])
+print(resp.choices[0].message.content)
+
+# JS
+fetch('http://localhost:4000/v1/chat/completions',{
+  method:'POST',
+  headers:{'Content-Type':'application/json','Authorization':'Bearer sk-1234'},
+  body:JSON.stringify({model:'hermes',messages:[{role:'user',content:'Hello'}]})
+})
+</div>
+      </div>
+      <div class="card">
+        <h3>📊 24/7 Keep Alive</h3>
+        <div style="font-size:13px;color:#8b949e;line-height:1.6">
+          <b>Docker (True 24/7):</b><br>
+          <code>docker-compose -f llm/docker-compose.yml --profile llm up -d</code><br>
+          restart: unless-stopped + healthcheck 30s<br><br>
+          <b>Local:</b><br>
+          <code>./scripts/keepalive-llm.sh</code><br>
+          Monitors Ollama+LiteLLM+Router every 60s, auto-restarts<br><br>
+          <b>GitHub Actions:</b><br>
+          Workflow auto-restarts every 5h via cron<br>
+          Tailscale keeps same IP<br>
+          Heartbeat checks LLM every 5min<br><br>
+          <b>Monitoring:</b><br>
+          Main dashboard: /api/llm/status<br>
+          LiteLLM UI: http://localhost:4000/ui<br>
+          Logs: /tmp/ollama.log, /tmp/litellm.log
+        </div>
+      </div>
+    </div>
+  </div>
 </div>
 
 <script src="https://cdn.jsdelivr.net/npm/xterm@5.3.0/lib/xterm.js"></script>
@@ -202,11 +320,12 @@ document.querySelectorAll('.nav-link').forEach(el=>{
 });
 function switchTab(name){
   document.querySelectorAll('.tab-content').forEach(c=>c.classList.remove('active'));
-  const map = {overview:'overview',terminal:'terminal-tab',files:'files',processes:'processes'};
+  const map = {overview:'overview',terminal:'terminal-tab',files:'files',processes:'processes',llm:'llm'};
   document.getElementById(map[name]).classList.add('active');
   if(name==='terminal' && !term) initTerminal();
   if(name==='files') loadFiles();
   if(name==='processes') loadProcesses();
+  if(name==='llm') refreshLLMStatus();
 }
 
 // Stats
@@ -303,7 +422,194 @@ async function loadProcesses(){
 
 function openTTYD(){ window.open('/ttyd','_blank'); }
 function openCodeServer(){ window.open(':8081','_blank'); alert('If code-server is running, open port 8081. In GitHub Codespaces, check Ports tab.'); }
+function openLiteLLM(){ window.open('/api/llm/status','_blank'); alert('LiteLLM Proxy is at port 4000. In Codespaces, check Ports tab for 4000. API: /v1/chat/completions with Bearer sk-1234'); }
+
 async function logout(){ await fetch('/api/logout',{method:'POST'}); window.location.href='/login.html'; }
+
+// ==================== LLM - Hermes + LiteLLM Router ====================
+async function refreshLLMStatus(){
+  const statusEl = document.getElementById('llmStatus');
+  const modelsEl = document.getElementById('llmModels');
+  const ollamaBadge = document.getElementById('ollamaBadge');
+  const litellmBadge = document.getElementById('litellmBadge');
+  const routerBadge = document.getElementById('routerBadge');
+  
+  statusEl.textContent = '⏳ Checking LLM services...';
+  try{
+    const res = await fetch('/api/llm/status');
+    const data = await res.json();
+    
+    ollamaBadge.textContent = `Ollama: ${data.services.ollama.healthy ? '✅ Online' : '❌ Offline'}`;
+    ollamaBadge.className = 'badge ' + (data.services.ollama.healthy ? 'badge-green' : '');
+    
+    litellmBadge.textContent = `LiteLLM: ${data.services.litellm.healthy ? '✅ Online' : '❌ Offline'}`;
+    litellmBadge.className = 'badge ' + (data.services.litellm.healthy ? 'badge-green' : '');
+    
+    routerBadge.textContent = `Router: ${data.services.custom_router.healthy ? '✅ Online' : '❌ Offline'}`;
+    routerBadge.className = 'badge ' + (data.services.custom_router.healthy ? 'badge-green' : '');
+    
+    statusEl.textContent = `Selected Stack: Ollama + LiteLLM Proxy
+Reason: Best for 24/7 - lightweight, OpenAI compatible, routing, fallback, health checks
+
+Services:
+- Ollama: ${data.services.ollama.host} - ${data.services.ollama.healthy ? 'Healthy' : 'Down'} - Models: ${data.services.ollama.models}
+- LiteLLM: ${data.services.litellm.host} - ${data.services.litellm.healthy ? 'Healthy' : 'Down'}
+  API: ${data.services.litellm.api}
+  UI: ${data.services.litellm.docs}
+- Custom Router: ${data.services.custom_router.host} - ${data.services.custom_router.healthy ? 'Healthy' : 'Down'}
+
+Endpoints:
+- OpenAI Compatible: ${data.endpoints.openai_compatible}
+- Ollama Direct: ${data.endpoints.ollama_direct}
+- Custom Router: ${data.endpoints.custom_router}
+
+Auth: ${data.auth.header}
+
+24/7 Keep Alive:
+- Docker: restart: unless-stopped + healthcheck 30s
+- Keepalive script: scripts/keepalive-llm.sh (60s checks)
+- GitHub Actions: auto-restart every 5h via cron + Tailscale IP persistence
+
+Available Hermes Models:
+${data.available_hermes.map(m=>`  - ${m.id} (${m.ollama}) - ${m.ram} - ${m.description}`).join('\\n')}
+`;
+    
+    // Models
+    if(data.models && data.models.length>0){
+      modelsEl.textContent = data.models.map(m=>`${m.name} - ${(m.size/1024/1024/1024).toFixed(2)}GB - ${m.modified || ''}`).join('\\n');
+    } else {
+      // Try fetch from /api/llm/models
+      try{
+        const modelsRes = await fetch('/api/llm/models');
+        const modelsData = await modelsRes.json();
+        if(modelsData.data){
+          modelsEl.textContent = modelsData.data.map(m=>`${m.id} - ${m.owned_by}`).join('\\n');
+        } else {
+          modelsEl.textContent = 'No models pulled yet. Run: ollama pull nous-hermes2:2b or hermes3:3b';
+        }
+      }catch{
+        modelsEl.textContent = 'No models. Pull with: ollama pull nous-hermes2 or via dashboard button';
+      }
+    }
+  }catch(e){
+    statusEl.textContent = 'Error: '+e.message+'\\n\\nIs LLM stack running?\\n- Docker: docker-compose -f llm/docker-compose.yml --profile llm up -d\\n- Local: bash scripts/install-hermes.sh';
+    modelsEl.textContent = 'Error loading models: '+e.message;
+    ollamaBadge.textContent = 'Ollama: ❌ Error';
+    litellmBadge.textContent = 'LiteLLM: ❌ Error';
+    routerBadge.textContent = 'Router: ❌ Error';
+  }
+}
+
+async function sendLLMChat(){
+  const input = document.getElementById('llmInput');
+  const log = document.getElementById('llmChatLog');
+  const model = document.getElementById('llmModelSelect').value;
+  const status = document.getElementById('llmChatStatus');
+  
+  const message = input.value.trim();
+  if(!message) return;
+  
+  status.textContent = '● Thinking...';
+  status.className = 'badge badge-blue';
+  
+  log.textContent += `\\n\\n🧑 You (${model}): ${message}\\n🤖 Hermes: ⏳ Thinking...`;
+  log.scrollTop = log.scrollHeight;
+  input.value = '';
+  
+  try{
+    const res = await fetch('/api/llm/chat',{
+      method:'POST',
+      headers:{'Content-Type':'application/json'},
+      body:JSON.stringify({
+        model: model,
+        messages: [{role:'user',content:message}],
+        temperature: 0.7,
+        max_tokens: 500
+      })
+    });
+    const data = await res.json();
+    
+    if(data.choices && data.choices[0]){
+      const content = data.choices[0].message.content;
+      // Replace last thinking with actual
+      log.textContent = log.textContent.replace('🤖 Hermes: ⏳ Thinking...', `🤖 Hermes: ${content}`);
+    } else if(data.error){
+      log.textContent = log.textContent.replace('🤖 Hermes: ⏳ Thinking...', `❌ Error: ${data.error.message || data.error}\\nDetails: ${JSON.stringify(data.details||'').substring(0,200)}`);
+    } else {
+      log.textContent = log.textContent.replace('🤖 Hermes: ⏳ Thinking...', `🤖 Hermes: ${JSON.stringify(data).substring(0,500)}`);
+    }
+    
+    status.textContent = '● Ready';
+    status.className = 'badge badge-green';
+  }catch(e){
+    log.textContent = log.textContent.replace('🤖 Hermes: ⏳ Thinking...', `❌ Error: ${e.message}\\nIs Ollama running? Check LLM status tab.`);
+    status.textContent = '● Error';
+    status.className = 'badge';
+  }
+  log.scrollTop = log.scrollHeight;
+}
+
+function clearLLMChat(){
+  document.getElementById('llmChatLog').textContent = 'Chat cleared. Ready to chat with Hermes...\\n\\nTry: \"Hello, who are you?\"';
+}
+
+async function testLLM(){
+  const log = document.getElementById('llmChatLog');
+  log.textContent += '\\n\\n🔧 Testing LLM API...\\n';
+  try{
+    const res = await fetch('/api/llm/models');
+    const data = await res.json();
+    log.textContent += `Models API: ${res.ok ? '✅ OK' : '❌ Fail'} - ${JSON.stringify(data).substring(0,300)}\\n`;
+    
+    const healthRes = await fetch('/api/llm/health');
+    const healthData = await healthRes.json();
+    log.textContent += `Health API: ${healthRes.ok ? '✅ OK' : '❌ Fail'} - Status: ${healthData.status}\\n`;
+    
+    // Test chat
+    log.textContent += 'Testing chat completion...\\n';
+    const chatRes = await fetch('/api/llm/chat',{
+      method:'POST',
+      headers:{'Content-Type':'application/json'},
+      body:JSON.stringify({model:'hermes',messages:[{role:'user',content:'Hello, respond with OK in 5 words'}],max_tokens:20})
+    });
+    const chatData = await chatRes.json();
+    log.textContent += `Chat API: ${chatRes.ok ? '✅ OK' : '❌ Fail'} - ${chatData.choices ? chatData.choices[0].message.content.substring(0,100) : JSON.stringify(chatData).substring(0,200)}\\n`;
+  }catch(e){
+    log.textContent += `❌ Test failed: ${e.message}\\n`;
+  }
+  log.scrollTop = log.scrollHeight;
+}
+
+async function pullHermesModel(){
+  const model = document.getElementById('llmModelSelect').value;
+  const log = document.getElementById('llmChatLog');
+  const modelMap = {'hermes':'nous-hermes2','hermes3':'hermes3:8b','hermes3:3b':'hermes3:3b','openhermes':'openhermes','hermes-light':'nous-hermes2:2b'};
+  const ollamaModel = modelMap[model] || model;
+  
+  log.textContent += `\\n\\n📥 Pulling model ${ollamaModel}... This may take minutes.\\nCheck terminal or run: ollama pull ${ollamaModel}\\n`;
+  
+  try{
+    const res = await fetch('/api/exec',{method:'POST',headers:{'Content-Type':'application/json'},body:JSON.stringify({command:`ollama pull ${ollamaModel} 2>&1 | tail -20`})});
+    const data = await res.json();
+    log.textContent += `Pull output:\\n${data.stdout || ''}${data.stderr || ''}\\n`;
+    refreshLLMStatus();
+  }catch(e){
+    log.textContent += `Error pulling: ${e.message}\\nRun manually in terminal: ollama pull ${ollamaModel}\\n`;
+  }
+}
+
+async function restartLLM(){
+  const log = document.getElementById('llmChatLog');
+  log.textContent += '\\n\\n🔄 Restarting LLM services...\\n';
+  try{
+    const res = await fetch('/api/exec',{method:'POST',headers:{'Content-Type':'application/json'},body:JSON.stringify({command:`bash -c 'pkill -f \"ollama serve\"; sleep 2; nohup ollama serve > /tmp/ollama.log 2>&1 & echo \"Ollama restarted\"; sleep 3; curl -s http://localhost:11434/api/tags | head -5'`})});
+    const data = await res.json();
+    log.textContent += `${data.stdout}\\n${data.stderr || ''}\\n`;
+    setTimeout(refreshLLMStatus,3000);
+  }catch(e){
+    log.textContent += `Error: ${e.message}\\n`;
+  }
+}
 </script>
 </body>
 </html>

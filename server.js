@@ -15,6 +15,13 @@ const { exec, spawn } = require('child_process');
 const http = require('http');
 const WebSocket = require('ws');
 const si = require('systeminformation');
+const axios = require('axios');
+
+// LLM Config - Hermes + LiteLLM Router
+const OLLAMA_HOST = process.env.OLLAMA_HOST || 'http://localhost:11434';
+const LITELLM_HOST = process.env.LITELLM_HOST || 'http://localhost:4000';
+const LLM_ROUTER_HOST = process.env.LLM_ROUTER_HOST || 'http://localhost:4001';
+const LITELLM_MASTER_KEY = process.env.LITELLM_MASTER_KEY || 'sk-1234';
 
 const app = express();
 const PORT = process.env.PORT || 8080;
@@ -209,6 +216,214 @@ app.get('/api/processes', requireAuth, async (req, res) => {
   } catch (e) {
     res.status(500).json({ error: e.message });
   }
+});
+
+// ==================== LLM API - Hermes + Router ====================
+
+async function checkLLMHealth() {
+  let ollamaHealthy = false;
+  let litellmHealthy = false;
+  let routerHealthy = false;
+  let ollamaModels = [];
+  let error = null;
+
+  try {
+    const res = await axios.get(`${OLLAMA_HOST}/api/tags`, { timeout: 3000 });
+    ollamaHealthy = true;
+    ollamaModels = res.data.models || [];
+  } catch (e) {
+    error = e.message;
+  }
+
+  try {
+    const res = await axios.get(`${LITELLM_HOST}/health`, { timeout: 3000 });
+    litellmHealthy = true;
+  } catch (e) {
+    // Try root
+    try {
+      await axios.get(`${LITELLM_HOST}/`, { timeout: 3000 });
+      litellmHealthy = true;
+    } catch {}
+  }
+
+  try {
+    const res = await axios.get(`${LLM_ROUTER_HOST}/health`, { timeout: 3000 });
+    routerHealthy = true;
+  } catch {}
+
+  return { ollamaHealthy, litellmHealthy, routerHealthy, ollamaModels, error };
+}
+
+app.get('/api/llm/status', requireAuth, async (req, res) => {
+  const health = await checkLLMHealth();
+  res.json({
+    timestamp: new Date().toISOString(),
+    selected_stack: {
+      runner: 'Ollama',
+      router: 'LiteLLM Proxy',
+      reason: 'Best for 24/7 - lightweight, OpenAI compatible, routing, fallback, health checks'
+    },
+    services: {
+      ollama: {
+        host: OLLAMA_HOST,
+        healthy: health.ollamaHealthy,
+        url: OLLAMA_HOST,
+        models: health.ollamaModels.length
+      },
+      litellm: {
+        host: LITELLM_HOST,
+        healthy: health.litellmHealthy,
+        url: LITELLM_HOST,
+        api: `${LITELLM_HOST}/v1/chat/completions`,
+        docs: `${LITELLM_HOST}/ui`
+      },
+      custom_router: {
+        host: LLM_ROUTER_HOST,
+        healthy: health.routerHealthy,
+        url: LLM_ROUTER_HOST
+      }
+    },
+    models: health.ollamaModels.map(m => ({
+      name: m.name,
+      size: m.size,
+      modified: m.modified_at
+    })),
+    available_hermes: [
+      { id: 'hermes', ollama: 'nous-hermes2', ram: '8GB', description: 'Nous-Hermes2 10B - Balanced' },
+      { id: 'hermes3', ollama: 'hermes3:8b', ram: '6GB', description: 'Hermes3 8B - Recommended' },
+      { id: 'hermes3:3b', ollama: 'hermes3:3b', ram: '3GB', description: 'Lightweight for free VPS' },
+      { id: 'openhermes', ollama: 'openhermes', ram: '6GB', description: 'OpenHermes 7B' },
+      { id: 'hermes-light', ollama: 'nous-hermes2:2b', ram: '2GB', description: 'Ultra-light for GitHub Actions' }
+    ],
+    endpoints: {
+      openai_compatible: `${LITELLM_HOST}/v1/chat/completions`,
+      ollama_direct: `${OLLAMA_HOST}/api/chat`,
+      custom_router: `${LLM_ROUTER_HOST}/v1/chat/completions`,
+      models: `${LITELLM_HOST}/v1/models`,
+      health: '/api/llm/status'
+    },
+    auth: {
+      master_key: LITELLM_MASTER_KEY.substring(0,10)+'...',
+      header: 'Authorization: Bearer sk-1234'
+    },
+    uptime_24_7: {
+      method: 'Docker restart: unless-stopped + health checks every 30s + keepalive script',
+      keepalive: 'scripts/keepalive-llm.sh monitors and restarts if down',
+      docker: 'docker-compose -f llm/docker-compose.yml up -d --profile llm'
+    }
+  });
+});
+
+app.get('/api/llm/models', requireAuth, async (req, res) => {
+  try {
+    // Try LiteLLM first
+    try {
+      const litellmRes = await axios.get(`${LITELLM_HOST}/v1/models`, {
+        headers: { 'Authorization': `Bearer ${LITELLM_MASTER_KEY}` },
+        timeout: 5000
+      });
+      return res.json(litellmRes.data);
+    } catch {}
+
+    // Fallback to Ollama
+    const ollamaRes = await axios.get(`${OLLAMA_HOST}/api/tags`, { timeout: 5000 });
+    const models = (ollamaRes.data.models || []).map(m => ({
+      id: m.name,
+      object: 'model',
+      created: Date.now(),
+      owned_by: 'ollama'
+    }));
+    res.json({ object: 'list', data: models });
+  } catch (e) {
+    res.status(500).json({ error: e.message, hint: 'Is Ollama running? Run: ollama serve & ollama pull nous-hermes2' });
+  }
+});
+
+// Proxy chat completions through our router (adds auth, logging, 24/7 monitoring)
+app.post('/api/llm/chat', requireAuth, async (req, res) => {
+  const { model, messages, temperature, max_tokens, stream } = req.body;
+  
+  if (!messages) return res.status(400).json({ error: 'messages required' });
+
+  const targetModel = model || 'hermes';
+
+  // Try LiteLLM
+  try {
+    const response = await axios.post(`${LITELLM_HOST}/v1/chat/completions`, {
+      model: targetModel,
+      messages,
+      temperature: temperature || 0.7,
+      max_tokens: max_tokens || 500,
+      stream: stream || false
+    }, {
+      headers: {
+        'Authorization': `Bearer ${LITELLM_MASTER_KEY}`,
+        'Content-Type': 'application/json'
+      },
+      timeout: 300000,
+      responseType: stream ? 'stream' : 'json'
+    });
+
+    if (stream) {
+      res.setHeader('Content-Type', 'text/event-stream');
+      res.setHeader('Cache-Control', 'no-cache');
+      response.data.pipe(res);
+    } else {
+      res.json(response.data);
+    }
+    return;
+  } catch (e) {
+    console.log(`[LLM] LiteLLM failed, trying Ollama direct: ${e.message}`);
+  }
+
+  // Fallback to Ollama direct
+  try {
+    const modelMap = {
+      'hermes': 'nous-hermes2',
+      'hermes3': 'hermes3:8b',
+      'openhermes': 'openhermes',
+      'hermes-light': 'nous-hermes2:2b'
+    };
+    const ollamaModel = modelMap[targetModel] || targetModel;
+
+    const ollamaRes = await axios.post(`${OLLAMA_HOST}/api/chat`, {
+      model: ollamaModel,
+      messages,
+      stream: false,
+      options: { temperature: temperature || 0.7, num_predict: max_tokens || 500 }
+    }, { timeout: 300000 });
+
+    // Convert to OpenAI format
+    res.json({
+      id: `chatcmpl-${Date.now()}`,
+      object: 'chat.completion',
+      created: Math.floor(Date.now()/1000),
+      model: targetModel,
+      choices: [{
+        index: 0,
+        message: { role: 'assistant', content: ollamaRes.data.message?.content || '' },
+        finish_reason: 'stop'
+      }],
+      usage: {
+        prompt_tokens: Math.floor(JSON.stringify(messages).length/4),
+        completion_tokens: Math.floor((ollamaRes.data.message?.content?.length || 0)/4),
+        total_tokens: 0
+      }
+    });
+  } catch (e) {
+    res.status(500).json({ error: e.message, details: e.response?.data || null, hint: 'Pull model: ollama pull nous-hermes2' });
+  }
+});
+
+// Public LLM health (no auth) for monitoring
+app.get('/api/llm/health', async (req, res) => {
+  const health = await checkLLMHealth();
+  res.json({
+    status: health.ollamaHealthy || health.litellmHealthy ? 'online' : 'offline',
+    timestamp: new Date().toISOString(),
+    services: health,
+    uptime: process.uptime()
+  });
 });
 
 // Create HTTP server

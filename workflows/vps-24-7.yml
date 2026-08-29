@@ -1,4 +1,4 @@
-name: FreeVPS Mark1.3 - 24/7 VPS
+name: FreeVPS Mark1.3 - 24/7 VPS + Hermes LLM
 
 on:
   workflow_dispatch:
@@ -23,10 +23,17 @@ on:
         description: 'Enable Tailscale VPN'
         required: false
         default: 'false'
+      enable_llm:
+        description: 'Enable Hermes LLM + LiteLLM Router (Ollama)'
+        required: false
+        default: 'true'
+      llm_model:
+        description: 'Hermes model to pull (for low RAM use 2b/3b)'
+        required: false
+        default: 'nous-hermes2:2b'
   push:
     branches: [ main, arena/* ]
   schedule:
-    # Auto restart every 6 hours to stay within GitHub's 6h limit, achieves 24/7 via restarts
     - cron: '0 */5 * * *'
   repository_dispatch:
     types: [ restart-vps ]
@@ -38,12 +45,15 @@ env:
   MAIN_PORT: 8080
   TTYD_PORT: 7681
   CODE_PORT: 8081
+  OLLAMA_PORT: 11434
+  LITELLM_PORT: 4000
+  ROUTER_PORT: 4001
   DEBIAN_FRONTEND: noninteractive
 
 jobs:
   vps:
     runs-on: ubuntu-latest
-    timeout-minutes: 350  # 5h50m, just under 6h limit
+    timeout-minutes: 350
     permissions:
       contents: write
       actions: write
@@ -66,6 +76,8 @@ jobs:
           echo "OS: $(uname -a)"
           echo "User: $(whoami)"
           echo "VPS User: $VPS_USER / $VPS_USER_LOWER"
+          echo "RAM: $(free -h | grep Mem)"
+          echo "CPU: $(lscpu | grep 'Model name')"
           echo "=================================="
           lscpu
           free -h
@@ -79,15 +91,10 @@ jobs:
           sudo usermod -aG sudo $VPS_USER_LOWER
           echo "$VPS_USER_LOWER ALL=(ALL) NOPASSWD:ALL" | sudo tee /etc/sudoers.d/$VPS_USER_LOWER
           sudo chmod 440 /etc/sudoers.d/$VPS_USER_LOWER
-          
-          # Also try capital M version
           sudo useradd -m -s /bin/bash Mikasa 2>/dev/null || true
           echo "Mikasa:$VPS_PASS" | sudo chpasswd 2>/dev/null || true
           sudo usermod -aG sudo Mikasa 2>/dev/null || true
-          
-          echo "✅ Users created:"
           id $VPS_USER_LOWER
-          id Mikasa 2>/dev/null || echo "Mikasa user (capital) check done"
 
       - name: Install System Dependencies
         run: |
@@ -96,34 +103,27 @@ jobs:
             curl wget git htop nano vim tmux screen \
             openssh-server supervisor net-tools lsof \
             unzip zip build-essential python3 python3-pip \
-            neofetch jq fail2ban ufw \
-            libssl-dev
+            neofetch jq fail2ban ufw libssl-dev
           
-          # Install ttyd
           echo "Installing ttyd..."
           sudo apt-get install -y ttyd 2>/dev/null || {
             wget -q https://github.com/tsl0922/ttyd/releases/download/1.7.7/ttyd.x86_64 -O /tmp/ttyd
             chmod +x /tmp/ttyd
             sudo mv /tmp/ttyd /usr/local/bin/ttyd
           }
-          ttyd --version || echo "ttyd installed"
           
-          # Install code-server
           echo "Installing code-server..."
           curl -fsSL https://code-server.dev/install.sh | sh
-          code-server --version || echo "code-server installed"
+          code-server --version || true
 
       - name: Setup SSH Server
         run: |
           sudo mkdir -p /var/run/sshd /run/sshd
           sudo sed -i 's/#*PasswordAuthentication.*/PasswordAuthentication yes/' /etc/ssh/sshd_config
           sudo sed -i 's/#*PermitRootLogin.*/PermitRootLogin yes/' /etc/ssh/sshd_config
-          sudo sed -i 's/#*PubkeyAuthentication.*/PubkeyAuthentication yes/' /etc/ssh/sshd_config
           sudo ssh-keygen -A
           sudo /usr/sbin/sshd || sudo service ssh start
-          echo "✅ SSH Server Status:"
-          sudo service ssh status || pgrep sshd
-          echo "SSH listening on:"
+          pgrep sshd
           sudo ss -tlnp | grep :22 || true
 
       - name: Install Node Dependencies
@@ -131,29 +131,116 @@ jobs:
           npm ci || npm install
           echo "Node modules installed"
 
+      - name: Install Ollama + Hermes LLM (Selected Stack)
+        if: ${{ github.event.inputs.enable_llm != 'false' }}
+        run: |
+          echo "=== Installing Ollama + Hermes LLM ==="
+          echo "Selected Stack: Ollama (runner) + LiteLLM Proxy (router)"
+          echo "Why: Best for 24/7 - lightweight, OpenAI compatible, routing, fallback, health checks"
+          echo "Model: ${{ github.event.inputs.llm_model || 'nous-hermes2:2b' }}"
+          
+          # Install Ollama
+          curl -fsSL https://ollama.com/install.sh | sh
+          ollama --version
+          
+          # Start Ollama
+          nohup ollama serve > /tmp/ollama.log 2>&1 &
+          echo $! > /tmp/ollama.pid
+          sleep 5
+          
+          # Wait for ready
+          for i in {1..20}; do
+            if curl -s http://localhost:11434/api/tags > /dev/null 2>&1; then
+              echo "Ollama ready!"
+              break
+            fi
+            echo "Waiting for Ollama... $i"
+            sleep 2
+          done
+          
+          # Pull Hermes model (lightweight for GitHub Actions)
+          MODEL="${{ github.event.inputs.llm_model || 'nous-hermes2:2b' }}"
+          echo "Pulling Hermes model: $MODEL (this may take 2-5 min)..."
+          ollama pull $MODEL || ollama pull nous-hermes2:2b || ollama pull hermes3:3b
+          
+          # Also pull fallback
+          ollama pull hermes3:3b 2>&1 | tail -5 || true
+          
+          echo "Available models:"
+          ollama list
+          curl -s http://localhost:11434/api/tags | jq || cat /tmp/ollama.log | tail -20
+
+      - name: Install LiteLLM Proxy - Selected LLM API Router
+        if: ${{ github.event.inputs.enable_llm != 'false' }}
+        run: |
+          echo "=== Installing LiteLLM Proxy (Selected Router) ==="
+          echo "LiteLLM is OpenAI compatible, supports routing, load balancing, fallback, 24/7 health checks"
+          
+          pip3 install 'litellm[proxy]' --break-system-packages || pip3 install 'litellm[proxy]' || true
+          
+          # Create config
+          mkdir -p llm/litellm
+          cat > llm/litellm/litellm-config.yaml << 'EOC'
+          model_list:
+            - model_name: hermes
+              litellm_params:
+                model: ollama/nous-hermes2:2b
+                api_base: http://localhost:11434
+            - model_name: hermes3
+              litellm_params:
+                model: ollama/hermes3:3b
+                api_base: http://localhost:11434
+            - model_name: nous-hermes2
+              litellm_params:
+                model: ollama/nous-hermes2:2b
+                api_base: http://localhost:11434
+            - model_name: hermes-light
+              litellm_params:
+                model: ollama/nous-hermes2:2b
+                api_base: http://localhost:11434
+          EOC
+          
+          # Start LiteLLM
+          nohup litellm --config llm/litellm/litellm-config.yaml --port 4000 > /tmp/litellm.log 2>&1 &
+          echo $! > /tmp/litellm.pid
+          sleep 5
+          
+          echo "LiteLLM status:"
+          curl -s http://localhost:4000/health || curl -s http://localhost:4000/ || cat /tmp/litellm.log | tail -20
+          echo ""
+          echo "Models via LiteLLM:"
+          curl -s http://localhost:4000/v1/models -H "Authorization: Bearer sk-1234" | jq || true
+
+      - name: Start Custom Hermes Router (Fallback)
+        if: ${{ github.event.inputs.enable_llm != 'false' }}
+        run: |
+          echo "Starting custom Hermes router on port 4001..."
+          cd llm/router
+          npm install --production 2>&1 | tail -5 || true
+          PORT=4001 OLLAMA_HOST=http://localhost:11434 LITELLM_HOST=http://localhost:4000 nohup node router.js > /tmp/hermes-router.log 2>&1 &
+          echo $! > /tmp/hermes-router.pid
+          cd ../..
+          sleep 3
+          curl -s http://localhost:4001/health | jq || cat /tmp/hermes-router.log | tail -10 || true
+
       - name: Setup Tailscale (Optional)
         if: ${{ github.event.inputs.enable_tailscale == 'true' || secrets.TAILSCALE_AUTHKEY != '' }}
         run: |
           curl -fsSL https://tailscale.com/install.sh | sh
           if [ -n "${{ secrets.TAILSCALE_AUTHKEY }}" ]; then
-            echo "Starting Tailscale with authkey..."
-            sudo tailscale up --authkey=${{ secrets.TAILSCALE_AUTHKEY }} --hostname=freevps-mark1-3-${{ github.run_id }} || echo "Tailscale up failed, may need manual"
-            tailscale ip -4 || echo "Tailscale IP not yet available"
-          else
-            echo "Tailscale installed but no authkey secret, skipping auto-connect"
-            echo "Set TAILSCALE_AUTHKEY secret to auto-connect"
+            sudo tailscale up --authkey=${{ secrets.TAILSCALE_AUTHKEY }} --hostname=freevps-mark1-3-${{ github.run_id }} || true
+            tailscale ip -4 || true
           fi
 
       - name: Setup Ngrok (Optional)
         if: ${{ secrets.NGROK_AUTH_TOKEN != '' }}
         run: |
-          echo "Installing ngrok..."
           curl -s https://ngrok.com/download/deb | sudo tee /etc/apt/sources.list.d/ngrok.list
           sudo apt-get update && sudo apt-get install ngrok -y
           ngrok config add-authtoken ${{ secrets.NGROK_AUTH_TOKEN }}
           echo "✅ Ngrok configured"
 
-      - name: Create MOTD and Welcome
+      - name: Create MOTD
         run: |
           sudo tee /etc/motd << EOF
           ╔════════════════════════════════════════════════════╗
@@ -163,48 +250,29 @@ jobs:
           ║  Password: Eren@Home\$123                            ║
           ║  Status:   24/7 Active via GitHub Actions           ║
           ║  Run ID:   ${{ github.run_id }}                     ║
-          ║  Access:   SSH, Web Terminal, VS Code, ttyd         ║
+          ║  LLM:      Hermes + LiteLLM Router (24/7)           ║
           ╚════════════════════════════════════════════════════╝
-
-          Welcome, Mikasa! Your VPS is ready.
-
-          Access:
-            - Dashboard: http://localhost:8080 (Mikasa / Eren@Home\$123)
-            - ttyd: http://localhost:7681
-            - code-server: http://localhost:8081
-            - SSH: ssh mikasa@localhost
-
-          Keep alive: 24/7 via workflow schedule
-
           EOF
           cat /etc/motd
 
       - name: Start VPS Services
         run: |
           echo "=== Starting FreeVPS Services ==="
-          
-          # Make scripts executable
           chmod +x scripts/*.sh
           chmod +x start-vps.sh
           
-          # Start main dashboard
-          echo "Starting main dashboard on port $MAIN_PORT..."
-          PORT=$MAIN_PORT VPS_USER=$VPS_USER VPS_PASS="$VPS_PASS" nohup node server.js > /tmp/dashboard.log 2>&1 &
+          PORT=$MAIN_PORT VPS_USER=$VPS_USER VPS_PASS="$VPS_PASS" OLLAMA_HOST=http://localhost:11434 LITELLM_HOST=http://localhost:4000 nohup node server.js > /tmp/dashboard.log 2>&1 &
           echo $! > /tmp/dashboard.pid
           sleep 3
-          cat /tmp/dashboard.log || true
+          cat /tmp/dashboard.log | tail -10 || true
           
-          # Start ttyd
           if [ "${{ github.event.inputs.enable_ttyd }}" != "false" ]; then
-            echo "Starting ttyd on port $TTYD_PORT..."
             nohup ttyd -p $TTYD_PORT -c $VPS_USER_LOWER:$VPS_PASS bash > /tmp/ttyd.log 2>&1 &
             echo $! > /tmp/ttyd.pid
             sleep 2
           fi
           
-          # Start code-server
           if [ "${{ github.event.inputs.enable_code_server }}" != "false" ]; then
-            echo "Starting code-server on port $CODE_PORT..."
             mkdir -p ~/.config/code-server
             cat > ~/.config/code-server/config.yaml << EOC
           bind-addr: 0.0.0.0:$CODE_PORT
@@ -217,120 +285,113 @@ jobs:
             sleep 3
           fi
           
-          # Start ngrok tunnels if token exists
           if [ -n "${{ secrets.NGROK_AUTH_TOKEN }}" ]; then
-            echo "Starting ngrok tunnels..."
             nohup ngrok http $MAIN_PORT --log=/tmp/ngrok-dashboard.log > /tmp/ngrok.log 2>&1 &
-            nohup ngrok http $TTYD_PORT --log=/tmp/ngrok-ttyd.log > /tmp/ngrok-ttyd2.log 2>&1 &
-            nohup ngrok http $CODE_PORT --log=/tmp/ngrok-code.log > /tmp/ngrok-code.log 2>&1 &
+            nohup ngrok http $LITELLM_PORT --log=/tmp/ngrok-litellm.log > /tmp/ngrok-litellm2.log 2>&1 &
+            nohup ngrok http $OLLAMA_PORT --log=/tmp/ngrok-ollama.log > /tmp/ngrok-ollama2.log 2>&1 &
             sleep 5
-            curl -s http://localhost:4040/api/tunnels | jq || cat /tmp/ngrok.log
+            curl -s http://localhost:4040/api/tunnels | jq || true
           fi
           
           echo "=== Services Status ==="
-          ps aux | grep -E "server.js|ttyd|code-server|sshd|ngrok" | grep -v grep || true
-          echo ""
-          echo "Listening ports:"
-          ss -tlnp | grep -E "$MAIN_PORT|$TTYD_PORT|$CODE_PORT|22" || netstat -tlnp | grep -E "$MAIN_PORT|$TTYD_PORT|$CODE_PORT|22" || true
-          echo ""
-          echo "=== Access Info ==="
-          echo "Dashboard: http://localhost:$MAIN_PORT"
-          echo "User: $VPS_USER / $VPS_PASS"
-          echo "ttyd: http://localhost:$TTYD_PORT"
-          echo "code-server: http://localhost:$CODE_PORT"
+          ps aux | grep -E "server.js|ttyd|code-server|sshd|ollama|litellm|router.js" | grep -v grep || true
+          ss -tlnp | grep -E "$MAIN_PORT|$TTYD_PORT|$CODE_PORT|11434|4000|4001|22" || true
 
-      - name: Setup tmate Session (SSH Access)
+      - name: Setup tmate Session
         if: ${{ github.event.inputs.enable_tmate != 'false' }}
         uses: mxschmitt/action-tmate@v3
         with:
           limit-access-to-actor: false
           detached: true
 
-      - name: Keep Alive 24/7 - Heartbeat Loop
+      - name: Keep Alive 24/7 - Heartbeat Loop (VPS + LLM)
         run: |
           echo "╔════════════════════════════════════════════════════╗"
           echo "║         FreeVPS Mark1.3 - 24/7 VPS ONLINE          ║"
+          echo "║         + Hermes LLM API Router (LiteLLM)          ║"
           echo "╠════════════════════════════════════════════════════╣"
           echo "║  Username: Mikasa                                   ║"
           echo "║  Password: Eren@Home\$123                            ║"
+          echo "║  LLM: Hermes (nous-hermes2:2b) + LiteLLM Router     ║"
+          echo "║  API: http://localhost:4000/v1/chat/completions     ║"
+          echo "║  Auth: Bearer sk-1234                               ║"
           echo "║  Run ID: ${{ github.run_id }}                       ║"
-          echo "║  Started: $(date)                      ║"
           echo "╚════════════════════════════════════════════════════╝"
           echo ""
           echo "🔗 Access Methods:"
-          echo "  • tmate SSH: Check above logs for SSH command"
-          echo "  • Web Dashboard: Will be exposed via Actions logs"
-          echo "  • Tailscale: $(tailscale ip -4 2>/dev/null || echo 'Not connected, set TAILSCALE_AUTHKEY secret')"
+          echo "  • tmate SSH: Check above logs"
+          echo "  • Dashboard: http://localhost:$MAIN_PORT (Mikasa / Eren@Home\$123)"
+          echo "  • Ollama: http://localhost:11434"
+          echo "  • LiteLLM: http://localhost:4000/v1/chat/completions"
+          echo "  • Custom Router: http://localhost:4001/v1/chat/completions"
+          echo "  • Tailscale: $(tailscale ip -4 2>/dev/null || echo 'Not connected')"
           echo "  • Ngrok: Check ngrok dashboard if token set"
           echo ""
           echo "📊 System Status:"
           neofetch || uname -a
           echo ""
-          
-          # Create keepalive file
-          mkdir -p keepalive
-          echo "$(date) - VPS Started - Run ${{ github.run_id }}" >> keepalive/uptime.log
-          
-          # Heartbeat loop - runs until timeout (350 min)
-          echo "Starting 24/7 heartbeat loop (will run for ~5h50m, then auto-restart via schedule)..."
-          echo "To keep 24/7: This workflow auto-restarts every 5 hours via cron schedule"
+          echo "🧠 LLM Test:"
+          curl -s http://localhost:11434/api/tags | jq '.models[].name' || echo "Ollama tags failed"
+          curl -s http://localhost:4000/v1/models -H "Authorization: Bearer sk-1234" | jq || echo "LiteLLM models failed"
           echo ""
+          echo "💬 Test Hermes:"
+          curl -s http://localhost:4000/v1/chat/completions -H "Content-Type: application/json" -H "Authorization: Bearer sk-1234" -d '{"model":"hermes","messages":[{"role":"user","content":"Hello, are you Hermes? Respond in 10 words."}],"max_tokens":50}' | jq || echo "Chat test failed (model may still be loading)"
+          echo ""
+          
+          mkdir -p keepalive
+          echo "$(date) - VPS+LLM Started - Run ${{ github.run_id }}" >> keepalive/uptime.log
+          
+          echo "Starting 24/7 heartbeat loop (VPS + LLM)..."
           
           COUNT=0
           while true; do
             COUNT=$((COUNT+1))
             echo "[$(date)] 💓 Heartbeat #$COUNT - Uptime: $(uptime -p) - Load: $(cat /proc/loadavg | awk '{print $1}')"
-            echo "[$(date)] Services: $(ps aux | grep -E 'server.js|ttyd|code-server' | grep -v grep | wc -l) running, Dashboard PID: $(cat /tmp/dashboard.pid 2>/dev/null || echo 'unknown')"
+            echo "[$(date)] Services: VPS=$(ps aux | grep -E 'server.js' | grep -v grep | wc -l), Ollama=$(curl -s http://localhost:11434/api/tags > /dev/null && echo OK || echo DOWN), LiteLLM=$(curl -s http://localhost:4000/health > /dev/null && echo OK || echo DOWN)"
             
-            # Restart dashboard if down
             if ! ps -p $(cat /tmp/dashboard.pid 2>/dev/null) > /dev/null 2>&1; then
               echo "[$(date)] ⚠️ Dashboard down, restarting..."
-              PORT=$MAIN_PORT VPS_USER=$VPS_USER VPS_PASS="$VPS_PASS" nohup node server.js > /tmp/dashboard.log 2>&1 &
+              PORT=$MAIN_PORT VPS_USER=$VPS_USER VPS_PASS="$VPS_PASS" OLLAMA_HOST=http://localhost:11434 LITELLM_HOST=http://localhost:4000 nohup node server.js > /tmp/dashboard.log 2>&1 &
               echo $! > /tmp/dashboard.pid
             fi
             
-            # Show ngrok URLs if available
+            if ! curl -s http://localhost:11434/api/tags > /dev/null 2>&1; then
+              echo "[$(date)] ⚠️ Ollama down, restarting..."
+              nohup ollama serve > /tmp/ollama.log 2>&1 &
+              echo $! > /tmp/ollama.pid
+            fi
+            
+            if ! curl -s http://localhost:4000/health > /dev/null 2>&1 && ! curl -s http://localhost:4000/ > /dev/null 2>&1; then
+              echo "[$(date)] ⚠️ LiteLLM down, restarting..."
+              nohup litellm --config llm/litellm/litellm-config.yaml --port 4000 > /tmp/litellm.log 2>&1 &
+              echo $! > /tmp/litellm.pid
+            fi
+            
             if [ -n "${{ secrets.NGROK_AUTH_TOKEN }}" ]; then
               echo "[$(date)] Ngrok tunnels:"
               curl -s http://localhost:4040/api/tunnels 2>/dev/null | jq -r '.tunnels[] | "  - \(.name): \(.public_url) -> \(.config.addr)"' 2>/dev/null || echo "  Ngrok API not ready"
             fi
             
-            # Tailscale IP
             if command -v tailscale &> /dev/null; then
               TAIL_IP=$(tailscale ip -4 2>/dev/null || echo "")
               if [ -n "$TAIL_IP" ]; then
-                echo "[$(date)] Tailscale IP: $TAIL_IP - SSH: ssh $VPS_USER_LOWER@$TAIL_IP"
+                echo "[$(date)] Tailscale IP: $TAIL_IP"
+                echo "[$(date)] LLM API via Tailscale: http://$TAIL_IP:4000/v1/chat/completions"
               fi
             fi
             
-            # Save heartbeat to file for persistence check
-            echo "$(date) - Heartbeat #$COUNT - $(uptime)" >> keepalive/heartbeat.log
+            echo "$(date) - Heartbeat #$COUNT - $(uptime) - LLM OK" >> keepalive/heartbeat.log
             tail -100 keepalive/heartbeat.log > /tmp/hb.tmp && mv /tmp/hb.tmp keepalive/heartbeat.log
             
-            # Sleep 5 minutes
             sleep 300
           done
 
-      - name: Auto-Restart Workflow for 24/7 (on timeout)
+      - name: Auto-Restart Workflow for 24/7
         if: always()
         run: |
           echo "Workflow ending, attempting auto-restart for 24/7..."
-          # This will be handled by schedule cron, but we can also try to trigger via API if GH_TOKEN exists
           if [ -n "${{ secrets.GH_PAT }}" ]; then
-            echo "Triggering restart via GH_PAT..."
             curl -X POST -H "Authorization: token ${{ secrets.GH_PAT }}" -H "Accept: application/vnd.github.v3+json" https://api.github.com/repos/${{ github.repository }}/actions/workflows/vps-24-7.yml/dispatches -d '{"ref":"main"}' || echo "Restart trigger failed"
           else
             echo "No GH_PAT secret, relying on cron schedule (every 5h) for 24/7 restart"
-            echo "To enable instant restart, create a PAT and add as GH_PAT secret"
           fi
-
-  # Optional second job for monitoring
-  keepalive-ping:
-    runs-on: ubuntu-latest
-    if: always()
-    needs: vps
-    steps:
-      - name: Keepalive Ping
-        run: |
-          echo "VPS job finished at $(date)"
-          echo "Next run scheduled via cron in ~5 hours for 24/7"

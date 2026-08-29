@@ -1,204 +1,253 @@
-# FreeVPS.Mark1.3 - 24/7 VPS Server
+# FreeVPS.Mark1.3 - 24/7 VPS + Hermes LLM API Router
 
-> **Persistent VPS with Web Dashboard, RDP, SSH, ttyd, VS Code, Tailscale, Ngrok & Cloudflare Tunnels**
-> Username: `Mikasa` | Password: `Eren@Home$123`
+> **Persistent VPS with Web Dashboard, RDP, SSH, ttyd, VS Code + Hermes LLM (Ollama + LiteLLM Proxy)**
+> Username: `Mikasa` | Password: `Eren@Home$123` | LLM: `Hermes` via `LiteLLM Router` 24/7
 
 ![VPS Status](https://img.shields.io/badge/Status-24%2F7%20Online-brightgreen)
+![LLM](https://img.shields.io/badge/LLM-Hermes%20%2B%20LiteLLM-blue)
 ![Version](https://img.shields.io/badge/Version-Mark1.3-blue)
-![License](https://img.shields.io/badge/License-MIT-yellow)
 
 ```
 ╔════════════════════════════════════════════════════╗
 ║         FreeVPS Mark1.3 - 24/7 VPS ONLINE          ║
+║         + Hermes LLM API Router (LiteLLM)          ║
 ╠════════════════════════════════════════════════════╣
 ║  Username: Mikasa                                   ║
 ║  Password: Eren@Home$123                            ║
-║  Status:   24/7 Active                              ║
-║  Access:   SSH, RDP, Web Terminal, VS Code, ttyd    ║
+║  LLM: Hermes (Nous-Hermes2 / Hermes3) + LiteLLM     ║
+║  API: /v1/chat/completions (OpenAI compatible)      ║
+║  Status: 24/7 Active                                ║
 ╚════════════════════════════════════════════════════╝
 ```
 
 ---
 
-## ⚠️ Read this first - GitHub ToS Compliance
+## 🧠 NEW: Hermes LLM + API Router (24/7)
 
-GitHub-hosted Actions runners stop after **6 hours** and GitHub's Terms of Service forbid using Actions as an always-on server or crypto/relay host. 
+### Selected Stack: Ollama + LiteLLM Proxy
 
-So this repo provides **two compliant options**:
+**Why this stack for 24/7?**
 
-1. **Manually started, time-limited dev box (up to 6h per run)** - Uses Cloudflare Tunnels for RDP+SSH, no auto-restart loop (see `workflows/vps.yml` / Option A). **This is the ToS-compliant way to use GitHub Actions.**
+| Router | Pros | Cons | 24/7 |
+|--------|------|------|------|
+| **LiteLLM Proxy ✅ SELECTED** | OpenAI compatible, 100+ LLMs, routing, load balancing, fallback, retry, auth, logging, Docker, prod grade | Needs config | **Best** |
+| vLLM | Fastest, PagedAttention | Needs GPU, heavy RAM | Medium |
+| Ollama alone | Simple | No routing | Limited |
+| LocalAI | Many models | Heavier | Yes |
+| FastChat | Controller+worker | Complex | Medium |
 
-2. **Real 24/7 box via Docker** - Run on a host you control (home server, Oracle Cloud free tier, cheap VPS). This is genuine 24/7 with `restart: unless-stopped` (Option B).
+**Why Ollama for Hermes:**
+- Lightweight (CPU, 4GB RAM for 7B quantized), auto-restart, health checks, `restart: unless-stopped`
+- Supports all Hermes: `nous-hermes2`, `openhermes`, `hermes3:8b`, `hermes3:3b`, `nous-hermes2:2b`
+- Quantized Q4/Q5 for VPS
+- Simple API: http://localhost:11434
 
-3. **Extended 24/7 via auto-restart workflow** - Optional workflow `.github/workflows/vps-24-7.yml` that auto-restarts every 5h via cron for true 24/7 (Option C). Use with caution and only if you understand ToS - best combined with Tailscale for persistent IP.
+**Why LiteLLM Proxy as Router:**
+- OpenAI compatible: `/v1/chat/completions`, `/v1/models`
+- Routing: latency-based, least-busy, usage-based, simple-shuffle
+- 24/7: health checks 30s, auto-failover, retry+fallback, load balancing, auth, rate limiting, logging
+- Production grade, Docker ready, can route to Ollama + OpenAI + Anthropic + Groq + Together etc.
 
-**Default login is `Mikasa`**; the password (`Eren@Home$123`) is **never hardcoded in workflows** for the RDP version — you supply it as a secret `VPS_PASS`. For the web dashboard, it's configured via env but bcrypt-hashed.
+**Combined = True 24/7:**
+- Both `restart: unless-stopped`, healthchecks 30s, keepalive monitors 60s, auto-restart if down
+- Works on Docker (true 24/7), local, GitHub Actions (limited RAM)
+
+### Quick Start LLM (Docker - Recommended for 24/7)
+
+```bash
+# Start full stack: VPS + Hermes + LiteLLM Router
+docker-compose --profile llm up -d
+# or
+docker-compose -f llm/docker-compose.yml up -d
+
+# Pull Hermes model
+docker exec -it ollama-hermes ollama pull nous-hermes2
+docker exec -it ollama-hermes ollama pull hermes3:8b
+docker exec -it ollama-hermes ollama pull hermes3:3b  # lightweight for free VPS
+
+# Test
+curl http://localhost:11434/api/tags
+curl http://localhost:4000/v1/models -H "Authorization: Bearer sk-1234"
+curl http://localhost:4000/v1/chat/completions -H "Content-Type: application/json" -H "Authorization: Bearer sk-1234" -d '{"model":"hermes","messages":[{"role":"user","content":"Hello, who are you?"}]}'
+
+# Open WebUI (optional chat UI)
+docker-compose --profile ui up -d
+# http://localhost:3000
+```
+
+**Access:**
+- Ollama: http://localhost:11434
+- LiteLLM Proxy: http://localhost:4000 (OpenAI compatible, Bearer sk-1234)
+- LiteLLM UI: http://localhost:4000/ui
+- Custom Router: http://localhost:4001
+- Open WebUI: http://localhost:3000
+- Main Dashboard: http://localhost:8080 → LLM tab (Mikasa / Eren@Home$123)
+
+### Local Install (No Docker)
+
+```bash
+bash scripts/install-hermes.sh nous-hermes2:2b  # lightweight
+# or
+bash scripts/install-hermes.sh hermes3:8b
+
+# This installs Ollama, pulls Hermes, installs LiteLLM, starts services on 11434,4000,4001
+
+# Or manual:
+curl -fsSL https://ollama.com/install.sh | sh
+ollama serve &
+ollama pull nous-hermes2
+pip install 'litellm[proxy]'
+litellm --config llm/litellm/litellm-config.yaml --port 4000
+
+# Custom lightweight router (no pip needed)
+node llm/router/router.js
+```
+
+### GitHub Actions LLM (Limited RAM)
+
+Workflow `workflows/vps-24-7.yml` now has `enable_llm=true` input:
+- Installs Ollama, pulls `nous-hermes2:2b` (2GB, fits 7GB runner)
+- Starts LiteLLM on 4000, Custom Router on 4001
+- Expose via Tailscale: `http://<tailscale-ip>:4000/v1/chat/completions`
+- Heartbeat checks LLM every 5min, auto-restarts
+
+### API Usage (OpenAI Compatible)
+
+```python
+from openai import OpenAI
+client = OpenAI(base_url="http://localhost:4000/v1", api_key="sk-1234")
+resp = client.chat.completions.create(model="hermes", messages=[{"role":"user","content":"Hello Hermes!"}])
+print(resp.choices[0].message.content)
+```
+
+```bash
+curl http://localhost:4000/v1/chat/completions \
+  -H "Authorization: Bearer sk-1234" \
+  -H "Content-Type: application/json" \
+  -d '{"model":"hermes","messages":[{"role":"user","content":"Explain 24/7 VPS"}]}'
+```
+
+See `llm/README.md` for full docs.
 
 ---
 
-## 🚀 Quick Start - 4 Methods
+## ⚠️ GitHub ToS Compliance
 
-### Option A — GitHub Actions Dev Box (RDP + SSH, up to ~6h, ToS-compliant)
+GitHub runners stop after 6h and ToS forbids always-on. So:
 
-1. Repo → **Settings → Secrets and variables → Actions**
-   - New **repository secret**: `VPS_PASS` = `Eren@Home$123`
-   - (optional) New **variable**: `VPS_USER` = `Mikasa`
-2. Copy workflow into place (GitHub App tokens can't write to `.github/workflows` directly):
+1. **Manual dev box (6h, ToS-compliant)** - Cloudflare Tunnels RDP+SSH, no auto-restart (workflows/vps.yml / Option A)
+2. **Real 24/7 Docker** - On host you control (Option B)
+3. **Extended 24/7 auto-restart** - workflows/vps-24-7.yml auto-restarts every 5h via cron (Option C) - use with caution, best with Tailscale
+4. **LLM 24/7** - Docker `restart: unless-stopped` + health checks + keepalive scripts (llm/docker-compose.yml)
+
+Default login `Mikasa`; password `Eren@Home$123` never hardcoded in RDP workflow - supply as secret `VPS_PASS`. Dashboard uses bcrypt.
+
+---
+
+## 🚀 Quick Start - VPS (4 Methods)
+
+### Option A — GitHub Actions Dev Box (RDP + SSH, 6h, ToS-compliant)
+
+1. Settings → Secrets → `VPS_PASS=Eren@Home$123`, variable `VPS_USER=Mikasa`
+2. `mkdir -p .github/workflows && cp workflows/vps.yml .github/workflows/vps.yml && git push`
+3. Actions → Remote Dev Box → Run workflow
+4. Get `*.trycloudflare.com` hostnames from logs, connect via `cloudflared`:
    ```bash
-   mkdir -p .github/workflows && cp workflows/vps.yml .github/workflows/vps.yml
-   git add .github/workflows/vps.yml && git commit -m "Add VPS workflow" && git push
-   ```
-3. **Actions → Remote Dev Box (RDP + SSH) → Run workflow**, pick duration (max 350 min).
-4. Open the **"Start Cloudflare tunnels"** step log and copy the two `*.trycloudflare.com` hostnames.
-5. On your PC (install [`cloudflared`](https://github.com/cloudflare/cloudflared/releases)):
-   ```bash
-   # Desktop
    cloudflared access tcp --hostname <RDP-HOST> --url localhost:3389
-   # then RDP client -> localhost:3389, user Mikasa, pass Eren@Home$123
-
-   # Shell
+   # RDP to localhost:3389 user Mikasa
    cloudflared access tcp --hostname <SSH-HOST> --url localhost:2222
    ssh Mikasa@localhost -p 2222
    ```
 
-### Option B — Real 24/7 Box (Docker, Recommended for True 24/7)
-
-Run on any always-on host: home server, Oracle Cloud free tier, a cheap VPS, etc.
+### Option B — Real 24/7 Docker (Recommended)
 
 ```bash
-# Option B1: Our enhanced Docker (with dashboard)
+# VPS only
 docker-compose up -d --build
+# VPS + Hermes LLM (true 24/7)
+docker-compose --profile llm up -d --build
+# or full: VPS + LLM + WebUI + monitoring
+docker-compose --profile full --profile llm --profile ui --profile monitoring up -d
+
 # Access:
-# - Dashboard: http://<host>:8080 (Mikasa / Eren@Home$123)
-# - ttyd: http://<host>:7681
-# - VS Code: http://<host>:8081
-# - SSH: ssh mikasa@<host> -p 2222
-
-# Option B2: Minimal RDP desktop from original
-cd docker
-cp .env.example .env      # set VPS_PASS=Eren@Home$123   (quote it in shells)
-docker compose up -d --build
-# - Web desktop (noVNC): http://<host>:6080/vnc.html
-# - SSH: ssh Mikasa@<host> -p 2222
+# Dashboard: http://localhost:8080 (Mikasa / Eren@Home$123)
+# Ollama: http://localhost:11434
+# LiteLLM: http://localhost:4000 (sk-1234)
+# Custom Router: http://localhost:4001
+# WebUI: http://localhost:3000
+# ttyd: http://localhost:7681
+# VS Code: http://localhost:8081
+# SSH: ssh mikasa@localhost -p 2222
 ```
-
-Data persists in the `vps-home` volume, and `restart: unless-stopped` brings it back after reboots.
 
 ### Option C — 24/7 Auto-Restart Workflow (Extended)
 
-This uses `.github/workflows/vps-24-7.yml` which **auto-restarts every 5 hours via cron** to achieve 24/7.
+Uses `workflows/vps-24-7.yml` (copy to `.github/workflows/` manually):
 
-1. **Fork / Push this repo**
-2. Go to **Actions → FreeVPS Mark1.3 - 24/7 VPS → Run workflow**
-3. Check logs for:
-   - **tmate SSH**: `SSH: ssh <tmate-command>` (immediate)
-   - **Tailscale IP**: if `TAILSCALE_AUTHKEY` secret set → `ssh mikasa@<tailscale-ip>` (persistent!)
-   - **Ngrok URLs**: if `NGROK_AUTH_TOKEN` set → public https URLs
-   - **Dashboard**: Port 8080
+1. Fork/Push repo, Actions → FreeVPS Mark1.3 - 24/7 VPS → Run workflow (enable_llm=true for Hermes)
+2. Logs show: tmate SSH, Tailscale IP (`ssh mikasa@<ip>`), Ngrok URLs, Dashboard port 8080, LLM APIs port 4000/4001/11434
+3. Auto-restarts every 5h via cron, heartbeat 5min, optional GH_PAT for instant restart
 
-**How 24/7 works:**
-- Runs 5h50m (limit 6h), then cron `0 */5 * * *` restarts
-- Heartbeat every 5 min, auto-restarts services
-- Optional `GH_PAT` secret for instant API restart
+Secrets: `TAILSCALE_AUTHKEY`, `NGROK_AUTH_TOKEN`, `GH_PAT`
 
-**Secrets for Option C:**
-- `TAILSCALE_AUTHKEY` - Persistent VPN (https://login.tailscale.com/admin/settings/keys)
-- `NGROK_AUTH_TOKEN` - Public URLs (https://dashboard.ngrok.com/get-started/your-authtoken)
-- `GH_PAT` - PAT with workflow scope for instant restart
-
-### Option D — Direct Local Run (Fastest)
+### Option D — Direct Local Run
 
 ```bash
-# Install deps
 npm install
-bash scripts/setup-vps.sh   # Creates user Mikasa with Eren@Home$123
-
-# Start all services 24/7
-./start-vps.sh start
-
-# Or just main dashboard
-npm start
-# Access http://localhost:8080
-# Login: Mikasa / Eren@Home$123
-
-# Commands
+bash scripts/setup-vps.sh
+./start-vps.sh start          # VPS + LLM 24/7
+# or
+./start-vps.sh llm            # only LLM
+npm start                     # only dashboard http://localhost:8080
 ./start-vps.sh status
 ./start-vps.sh logs
-./start-vps.sh stop
-./start-vps.sh keepalive
+./start-vps.sh llm-status
 ```
 
 ---
 
-## 🔑 Credentials (As Requested)
+## 🔑 Credentials
 
 | Service | Username | Password | Port | URL |
 |---------|----------|----------|------|-----|
-| **Main Dashboard** | `Mikasa` | `Eren@Home$123` | 8080 | http://localhost:8080 |
-| **System User** | `mikasa` / `Mikasa` | `Eren@Home$123` | 22 | ssh mikasa@localhost |
-| **RDP (GitHub Actions)** | `Mikasa` | `Eren@Home$123` (via secret) | 3389 | via Cloudflare Tunnel |
-| **ttyd Terminal** | `mikasa` | `Eren@Home$123` | 7681 | http://localhost:7681 |
+| **Dashboard** | `Mikasa` | `Eren@Home$123` | 8080 | http://localhost:8080 |
+| **System** | `mikasa` / `Mikasa` | `Eren@Home$123` | 22 | ssh mikasa@localhost |
+| **RDP** | `Mikasa` | via secret | 3389 | via CF Tunnel |
+| **ttyd** | `mikasa` | `Eren@Home$123` | 7681 | http://localhost:7681 |
 | **code-server** | - | `Eren@Home$123` | 8081 | http://localhost:8081 |
-| **Docker noVNC** | `Mikasa` | `Eren@Home$123` | 6080 | http://localhost:6080/vnc.html |
-
-Both `Mikasa` (capital M) and `mikasa` (lowercase) users are created. Lowercase is primary for Linux compatibility.
-
----
-
-## 📡 Access Methods Detailed
-
-### 1. Web Dashboard (Main - Option C/D)
-- **URL**: http://localhost:8080
-- Features: Real-time stats, interactive terminal (xterm.js + WS), file manager, process manager, quick exec, bcrypt auth
-- Login: Mikasa / Eren@Home$123
-
-### 2. RDP Desktop (Option A - GitHub Actions)
-- Via Cloudflare Tunnel: `cloudflared access tcp --hostname <RDP-HOST> --url localhost:3389` then RDP to localhost:3389
-- XFCE4 desktop, Firefox preinstalled
-
-### 3. SSH Access
-```bash
-# Local Docker
-ssh mikasa@localhost -p 2222
-
-# GitHub Actions + Cloudflare
-cloudflared access tcp --hostname <SSH-HOST> --url localhost:2222
-ssh Mikasa@localhost -p 2222
-
-# GitHub Actions + Tailscale (persistent IP, best for 24/7)
-ssh mikasa@<tailscale-ip>
-
-# GitHub Actions + tmate (temporary)
-# Use command from Actions logs
-```
-
-### 4. ttyd - Web Terminal
-- http://localhost:7681, auth mikasa / Eren@Home$123
-
-### 5. code-server - VS Code
-- http://localhost:8081, password Eren@Home$123
-
-### 6. Tailscale (Recommended for 24/7 Persistent SSH)
-- Private VPN stable IP
-- Set `TAILSCALE_AUTHKEY` secret, workflow auto-connects, IP in logs
-
-### 7. Ngrok (Public URLs)
-- Set `NGROK_AUTH_TOKEN`, get https://xxxx.ngrok.io URLs
+| **noVNC** | `Mikasa` | `Eren@Home$123` | 6080 | http://localhost:6080/vnc.html |
+| **Ollama** | - | - | 11434 | http://localhost:11434 |
+| **LiteLLM Router** | - | `sk-1234` Bearer | 4000 | http://localhost:4000/v1/chat/completions |
+| **Custom Router** | - | `sk-1234` Bearer | 4001 | http://localhost:4001/v1/chat/completions |
+| **Open WebUI** | - | - | 3000 | http://localhost:3000 |
 
 ---
 
-## 🔄 How 24/7 Persistence Works
+## 📡 Access Methods
 
-**Compliant way (Option A):** Manual runs up to 6h, no auto-restart.
+- **Dashboard:** http://localhost:8080 (stats, terminal, files, processes, LLM tab) - Mikasa / Eren@Home$123
+- **Hermes LLM:** http://localhost:4000/v1/chat/completions (OpenAI compatible, Bearer sk-1234) - Selected stack Ollama+LiteLLM
+- **RDP:** via Cloudflare Tunnel `cloudflared access tcp --hostname <RDP-HOST> --url localhost:3389`
+- **SSH:** `ssh mikasa@localhost -p 2222` or `ssh mikasa@<tailscale-ip>` or tmate
+- **ttyd:** http://localhost:7681
+- **code-server:** http://localhost:8081
+- **Tailscale:** persistent VPN IP, set `TAILSCALE_AUTHKEY` secret
+- **Ngrok:** public URLs, set `NGROK_AUTH_TOKEN`
 
-**Real 24/7 (Option B):** Docker `restart: unless-stopped` on your own host.
+---
 
-**Extended 24/7 (Option C):**
-1. Cron `0 */5 * * *` restarts workflow every 5h
-2. Heartbeat every 5 min restarts services
-3. `GH_PAT` for API instant restart
-4. Tailscale keeps same IP across restarts
-5. UptimeRobot ping optional
+## 🔄 24/7 Persistence
+
+**VPS:**
+- Compliant: manual 6h (Option A)
+- Real 24/7: Docker `restart: unless-stopped` (Option B)
+- Extended: cron `0 */5 * * *` restarts every 5h + Tailscale same IP + heartbeat 5min
+
+**LLM (Hermes + LiteLLM):**
+- Docker: `restart: unless-stopped`, healthcheck 30s, `depends_on: healthy`
+- Keepalive: `scripts/keepalive-llm.sh` monitors Ollama+LiteLLM+Router every 60s, auto-restarts
+- GitHub Actions: heartbeat checks LLM every 5min, auto-restarts
+- Monitoring: `/api/llm/status`, `/api/llm/health`, LiteLLM UI http://localhost:4000/ui, logs /tmp/ollama.log, /tmp/litellm.log
 
 ---
 
@@ -206,34 +255,39 @@ ssh mikasa@<tailscale-ip>
 
 ```
 FreeVPS.Mark1.3/
-├── server.js                 # Main dashboard (Express + WS)
+├── server.js                 # Dashboard + LLM routes (8080)
 ├── package.json
-├── start-vps.sh              # 24/7 launcher
-├── Dockerfile                # Enhanced Docker (dashboard+ttyd+code)
-├── docker-compose.yml        # Enhanced compose
+├── start-vps.sh              # 24/7 launcher (VPS + LLM)
+├── docker-compose.yml        # VPS + LLM (profiles: llm, full, ui, monitoring)
+├── Dockerfile
+├── llm/                      # Hermes LLM + Router
+│   ├── README.md             # Full LLM docs
+│   ├── docker-compose.yml    # LLM only stack
+│   ├── .env.example
+│   ├── ollama/entrypoint.sh
+│   ├── litellm/litellm-config.yaml  # LiteLLM router config (selected)
+│   └── router/
+│       ├── router.js         # Custom lightweight router (fallback)
+│       ├── package.json
+│       └── Dockerfile
 ├── docker/                   # Original RDP desktop
-│   ├── Dockerfile
-│   ├── docker-compose.yml
-│   ├── entrypoint.sh
-│   └── .env.example
 ├── workflows/
-│   └── vps.yml               # Compliant RDP+SSH Cloudflare workflow
-├── .github/workflows/
-│   ├── vps-24-7.yml          # Extended 24/7 auto-restart
-│   └── vps.yml (copy from workflows/vps.yml)
+│   ├── vps.yml               # Compliant RDP+SSH
+│   └── vps-24-7.yml          # Extended 24/7 + LLM (copy to .github/workflows/)
 ├── config/vps-config.json
 ├── scripts/
 │   ├── setup-vps.sh          # Creates Mikasa
-│   ├── create-user.sh
-│   ├── install.sh
+│   ├── install-hermes.sh     # Installs Ollama + Hermes + LiteLLM (selected)
+│   ├── setup-llm-router.sh   # Sets up LiteLLM router
+│   ├── keepalive-llm.sh      # 24/7 LLM keepalive
 │   └── keepalive.sh
 ├── public/
-│   ├── login.html            # Mikasa / Eren@Home$123
-│   ├── dashboard.html
-│   └── index.html
-├── src/monitor.js
+│   ├── login.html
+│   ├── dashboard.html        # Now includes LLM tab
+│   └── llm/
 └── keepalive/
     ├── keepalive.js
+    ├── llm-heartbeat.log
     └── uptime-monitor.sh
 ```
 
@@ -245,9 +299,12 @@ FreeVPS.Mark1.3/
 sudo useradd -m -s /bin/bash mikasa
 echo "mikasa:Eren@Home\$123" | sudo chpasswd
 sudo usermod -aG sudo mikasa
-sudo useradd -m -s /bin/bash Mikasa 2>/dev/null || true
-echo "Mikasa:Eren@Home\$123" | sudo chpasswd 2>/dev/null || true
-sudo apt update && sudo apt install -y curl wget git nodejs npm ttyd openssh-server
+sudo apt update && sudo apt install -y curl wget git nodejs npm ttyd openssh-server python3 python3-pip
+curl -fsSL https://ollama.com/install.sh | sh
+ollama serve &
+ollama pull nous-hermes2:2b
+pip install 'litellm[proxy]' --break-system-packages
+litellm --config llm/litellm/litellm-config.yaml --port 4000 &
 npm install
 PORT=8080 VPS_USER=Mikasa VPS_PASS='Eren@Home$123' node server.js
 ```
@@ -256,39 +313,42 @@ PORT=8080 VPS_USER=Mikasa VPS_PASS='Eren@Home$123' node server.js
 
 ## 🔒 Security
 
-- ✅ Password bcrypt hashed in dashboard
-- ✅ Session httpOnly cookies
-- ✅ SSH password auth (change in prod)
+- ✅ Dashboard bcrypt hashed, session httpOnly
+- ✅ LiteLLM master key `sk-1234` (change via LITELLM_MASTER_KEY env)
 - ⚠️ Default creds Mikasa / Eren@Home$123 - change via .env / secrets
-- 💡 Use GitHub Secrets for tokens
-- 💡 Enable UFW: `sudo ufw allow 22,8080,7681,8081,3389,6080/tcp && sudo ufw enable`
-- 💡 Prefer reverse proxy with TLS (Caddy/Traefik) or Cloudflare Tunnel for public
+- 💡 Use GitHub Secrets for tokens, never commit
+- 💡 UFW: `sudo ufw allow 22,8080,7681,8081,4000,4001,11434,3000/tcp && sudo ufw enable`
+- 💡 Public: reverse proxy TLS (Caddy/Traefik) or Cloudflare Tunnel
 
 ---
 
 ## 📊 Monitoring
 
-- Dashboard: /api/stats (after login)
-- Health: /health (public)
-- Heartbeat: keepalive/heartbeat.log
-- Logs: /tmp/freevps-dashboard.log, /tmp/ttyd.log, /tmp/code-server.log
+- Dashboard: /api/stats, /api/llm/status, /api/llm/health
+- Health: /health
+- LLM: http://localhost:4000/v1/models, http://localhost:4000/ui, http://localhost:11434/api/tags
+- Heartbeat: keepalive/heartbeat.log, keepalive/llm-heartbeat.log
+- Logs: /tmp/freevps-dashboard.log, /tmp/ollama.log, /tmp/litellm.log, /tmp/hermes-router.log
 - Uptime Kuma: `docker-compose --profile monitoring up -d` → http://localhost:3001
 
 ---
 
 ## ❓ FAQ
 
-**Q: How is this 24/7 if limit 6h?**
-A: Option A is up to 6h manual (ToS compliant). Option B Docker is real 24/7. Option C auto-restarts every 5h via cron + Tailscale keeps IP.
+**Q: Which LLM router selected and why?**
+A: **LiteLLM Proxy + Ollama** - Best for 24/7: lightweight, OpenAI compatible, routing (latency-based, least-busy), load balancing, fallback, retry, auth, logging, health checks, Docker `restart: unless-stopped`. vLLM needs GPU, LocalAI heavier, FastChat complex. See llm/README.md decision table.
+
+**Q: How to keep LLM 24/7?**
+A: Docker `--profile llm` with `restart: unless-stopped` + healthcheck 30s + `scripts/keepalive-llm.sh` monitors 60s + GitHub Actions cron 5h + Tailscale same IP.
+
+**Q: Which Hermes model for low RAM?**
+A: `nous-hermes2:2b` (2GB) or `hermes3:3b` (3GB) for free VPS/GitHub Actions. `hermes3:8b` (6GB) for 4GB Docker. `hermes3:70b` needs 40GB.
+
+**Q: How is VPS 24/7 if limit 6h?**
+A: Option A manual 6h ToS-compliant. Option B Docker real 24/7. Option C auto-restart cron 5h + Tailscale. LLM same.
 
 **Q: Public IP?**
-A: Via Ngrok (NGROK_AUTH_TOKEN) or Cloudflare Tunnel (Option A) or Tailscale private.
-
-**Q: Files persist?**
-A: GitHub Actions ephemeral, use Docker volumes for persistence, or commit/artifacts.
-
-**Q: Username fails?**
-A: Try mikasa lowercase for system, Mikasa capital for dashboard. Both created.
+A: Ngrok (NGROK_AUTH_TOKEN) or Cloudflare Tunnel (Option A) or Tailscale private.
 
 ---
 
@@ -298,6 +358,6 @@ MIT
 
 ---
 
-**Enjoy your VPS, Mikasa!** 🚀 Built with GitHub Actions, Tailscale, Ngrok, ttyd, code-server, tmate, Cloudflare, Node.js.
+**Enjoy your 24/7 VPS + Hermes LLM, Mikasa!** 🚀 Built with Ollama, LiteLLM, Hermes, GitHub Actions, Tailscale, Ngrok, ttyd, code-server, Cloudflare, Node.js.
 
-> "nothing in here bro Mark 2.5" → Now full Mark1.3 24/7 💪
+> "nothing in here bro Mark 2.5" → Now full Mark1.3 24/7 VPS + Hermes LLM API Router 💪

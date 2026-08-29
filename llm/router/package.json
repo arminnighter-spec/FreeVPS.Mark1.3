@@ -1,0 +1,16 @@
+{
+  "name": "hermes-llm-router",
+  "version": "1.3.0",
+  "description": "FreeVPS Mark1.3 - Hermes LLM API Router - 24/7 OpenAI compatible",
+  "main": "router.js",
+  "scripts": {
+    "start": "node router.js",
+    "dev": "nodemon router.js"
+  },
+  "dependencies": {
+    "express": "^4.18.2",
+    "cors": "^2.8.5",
+    "axios": "^1.6.2",
+    "dotenv": "^16.3.1"
+  }
+}

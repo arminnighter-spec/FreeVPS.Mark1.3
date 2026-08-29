@@ -1,0 +1,135 @@
+model_list:
+  # Hermes Models via Ollama - Primary 24/7 Models
+  - model_name: hermes
+    litellm_params:
+      model: ollama/nous-hermes2
+      api_base: http://ollama:11434
+      api_key: ollama
+    model_info:
+      id: hermes
+      description: "Nous-Hermes2 - Primary Hermes model, 10B, balanced"
+  
+  - model_name: hermes2
+    litellm_params:
+      model: ollama/nous-hermes2
+      api_base: http://ollama:11434
+    model_info:
+      id: hermes2
+
+  - model_name: nous-hermes2
+    litellm_params:
+      model: ollama/nous-hermes2
+      api_base: http://ollama:11434
+
+  - model_name: hermes3
+    litellm_params:
+      model: ollama/hermes3:8b
+      api_base: http://ollama:11434
+    model_info:
+      description: "Hermes3 8B - Latest, recommended for 6GB RAM"
+
+  - model_name: hermes3:8b
+    litellm_params:
+      model: ollama/hermes3:8b
+      api_base: http://ollama:11434
+
+  - model_name: hermes3:3b
+    litellm_params:
+      model: ollama/hermes3:3b
+      api_base: http://ollama:11434
+    model_info:
+      description: "Hermes3 3B - Lightweight, 3GB RAM, for free VPS"
+
+  - model_name: openhermes
+    litellm_params:
+      model: ollama/openhermes
+      api_base: http://ollama:11434
+
+  - model_name: hermes-light
+    litellm_params:
+      model: ollama/nous-hermes2:2b
+      api_base: http://ollama:11434
+    model_info:
+      description: "Hermes 2B - Ultra lightweight for GitHub Actions"
+
+  # Optional: Fallback to external providers if Ollama down
+  # Uncomment and set API keys in .env if you want fallbacks
+  # - model_name: gpt-3.5-turbo
+  #   litellm_params:
+  #     model: openai/gpt-3.5-turbo
+  #     api_key: os.environ/OPENAI_API_KEY
+  # - model_name: gpt-4
+  #   litellm_params:
+  #     model: openai/gpt-4
+  #     api_key: os.environ/OPENAI_API_KEY
+
+litellm_settings:
+  # 24/7 Reliability Settings
+  num_retries: 3
+  request_timeout: 600  # 10 min for long generations
+  fallback_strategy: ["hermes", "hermes3", "openhermes", "hermes3:3b"]
+  context_window_fallbacks:
+    - {"hermes3:8b": ["hermes3:3b", "hermes-light"]}
+  
+  # Caching for 24/7 performance
+  cache: true
+  cache_params:
+    type: redis
+    # For simple file cache, use:
+    # type: disk
+    # Uncomment if redis available:
+    # host: redis
+    # port: 6379
+
+  # Logging for monitoring 24/7 uptime
+  success_callback: ["langfuse", "slack"]
+  failure_callback: ["slack"]
+
+router_settings:
+  # Routing for 24/7 load balancing
+  routing_strategy: latency-based-routing  # Options: simple-shuffle, least-busy, latency-based-routing, usage-based-routing
+  num_retries: 3
+  retry_strategy: exponential_backoff_retry
+  timeout: 600
+  
+  # Fallbacks if primary Hermes down
+  fallbacks:
+    - {"hermes": ["hermes3", "openhermes", "hermes3:3b"]}
+    - {"hermes3": ["hermes", "openhermes"]}
+    - {"openhermes": ["hermes", "hermes3"]}
+  
+  # Context window fallbacks (if model context exceeded)
+  context_window_fallbacks:
+    - {"hermes3:8b": ["hermes3:3b"]}
+  
+  # Health checks for 24/7
+  enable_pre_call_checks: true
+
+# Environment variables
+environment_variables:
+  OPENAI_API_KEY: "os.environ/OPENAI_API_KEY"
+  ANTHROPIC_API_KEY: "os.environ/ANTHROPIC_API_KEY"
+
+# General settings
+general_settings:
+  master_key: sk-1234
+  database_url: "sqlite:////app/data/litellm.db"
+  store_model_in_db: true
+  ui_access_mode: "admin_only"  # Change to "all" for public UI
+  # For 24/7 monitoring
+  alerting: ["slack"]
+  alerting_threshold: 300  # seconds
+
+# Optional: Load balancing across multiple Ollama instances for 24/7 HA
+# - model_name: hermes-ha
+#   litellm_params:
+#     model: ollama/nous-hermes2
+#     api_base: http://ollama-1:11434
+#   model_info:
+#     id: hermes-ha-1
+# - model_name: hermes-ha
+#   litellm_params:
+#     model: ollama/nous-hermes2
+#     api_base: http://ollama-2:11434
+#   model_info:
+#     id: hermes-ha-2
