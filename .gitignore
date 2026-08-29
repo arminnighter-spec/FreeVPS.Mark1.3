@@ -58,3 +58,5 @@ vps_data/
 
 # Tailscale
 tailscale.log
+.github/workflows/*
+!.github/workflows/.gitkeep
