@@ -1,0 +1,21 @@
+version: "3.8"
+
+# True 24/7 option: run this on any host you control (home PC, Oracle Cloud
+# free tier, Fly.io, etc). Web desktop at http://<host>:6080  |  SSH on 2222.
+services:
+  vps:
+    build: .
+    container_name: freevps
+    restart: unless-stopped
+    environment:
+      VPS_USER: "${VPS_USER:-Mikasa}"
+      VPS_PASS: "${VPS_PASS:?set VPS_PASS in docker/.env}"
+    ports:
+      - "6080:6080"   # noVNC web desktop
+      - "2222:22"     # SSH
+    volumes:
+      - vps-home:/home
+    shm_size: "1gb"
+
+volumes:
+  vps-home:

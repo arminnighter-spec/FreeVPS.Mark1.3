@@ -1,0 +1,85 @@
+name: Remote Dev Box (RDP + SSH)
+
+# Manually started, time-limited remote machine.
+# NOTE: GitHub-hosted runners are capped at 6 hours per job.
+# Do NOT chain/auto-restart this workflow: using Actions as an always-on
+# server violates the GitHub Terms of Service.
+
+on:
+  workflow_dispatch:
+    inputs:
+      minutes:
+        description: "How long to keep the box alive (max 350)"
+        required: true
+        default: "350"
+
+jobs:
+  vps:
+    runs-on: ubuntu-22.04
+    timeout-minutes: 360
+    env:
+      VPS_USER: ${{ vars.VPS_USER || 'Mikasa' }}
+      VPS_PASS: ${{ secrets.VPS_PASS }}
+
+    steps:
+      - uses: actions/checkout@v4
+
+      - name: Check password secret
+        run: |
+          if [ -z "$VPS_PASS" ]; then
+            echo "::error::Repository secret VPS_PASS is not set. See README."
+            exit 1
+          fi
+
+      - name: Create user "$VPS_USER"
+        run: |
+          sudo useradd -m -s /bin/bash "$VPS_USER" || true
+          echo "$VPS_USER:$VPS_PASS" | sudo chpasswd
+          sudo usermod -aG sudo "$VPS_USER"
+          echo "$VPS_USER ALL=(ALL) NOPASSWD:ALL" | sudo tee /etc/sudoers.d/99-$VPS_USER
+
+      - name: Install desktop + RDP + SSH
+        run: |
+          sudo apt-get update -qq
+          sudo DEBIAN_FRONTEND=noninteractive apt-get install -y -qq \
+            xfce4 xfce4-goodies xrdp openssh-server dbus-x11 firefox
+          echo "xfce4-session" | sudo tee /home/$VPS_USER/.xsession
+          sudo chown $VPS_USER:$VPS_USER /home/$VPS_USER/.xsession
+          sudo adduser xrdp ssl-cert || true
+          sudo systemctl enable --now xrdp
+          sudo systemctl restart xrdp
+          sudo sed -i 's/^#\?PasswordAuthentication.*/PasswordAuthentication yes/' /etc/ssh/sshd_config
+          sudo systemctl restart ssh
+
+      - name: Start Cloudflare tunnels (RDP 3389 + SSH 22)
+        run: |
+          curl -sL -o cloudflared \
+            https://github.com/cloudflare/cloudflared/releases/latest/download/cloudflared-linux-amd64
+          chmod +x cloudflared
+          ./cloudflared tunnel --url tcp://localhost:3389 --no-autoupdate > rdp.log 2>&1 &
+          ./cloudflared tunnel --url tcp://localhost:22   --no-autoupdate > ssh.log 2>&1 &
+          sleep 25
+          echo "=================== CONNECTION INFO ==================="
+          echo "Username: $VPS_USER"
+          echo "Password: (your VPS_PASS secret)"
+          echo "--- RDP hostname ---"
+          grep -o 'https://[-a-z0-9]*\.trycloudflare\.com' rdp.log | head -1
+          echo "--- SSH hostname ---"
+          grep -o 'https://[-a-z0-9]*\.trycloudflare\.com' ssh.log | head -1
+          echo
+          echo "Connect from your PC (install cloudflared locally), e.g.:"
+          echo "  cloudflared access tcp --hostname <RDP-HOST> --url localhost:3389"
+          echo "  then RDP to localhost:3389"
+          echo "  cloudflared access tcp --hostname <SSH-HOST> --url localhost:2222"
+          echo "  then: ssh $VPS_USER@localhost -p 2222"
+          echo "======================================================="
+
+      - name: Keep alive
+        run: |
+          MINS=${{ github.event.inputs.minutes }}
+          [ "$MINS" -gt 350 ] && MINS=350
+          END=$(( $(date +%s) + MINS * 60 ))
+          while [ "$(date +%s)" -lt "$END" ]; do
+            echo "[alive] $(date -u) - $(( (END - $(date +%s)) / 60 )) min left"
+            sleep 300
+          done

@@ -1,6 +1,6 @@
-# FreeVPS Mark1.3 - 24/7 VPS Server
+# FreeVPS.Mark1.3 - 24/7 VPS Server
 
-> **Persistent 24/7 VPS with Web Dashboard, SSH, ttyd, VS Code, Tailscale & Ngrok**
+> **Persistent VPS with Web Dashboard, RDP, SSH, ttyd, VS Code, Tailscale, Ngrok & Cloudflare Tunnels**
 > Username: `Mikasa` | Password: `Eren@Home$123`
 
 ![VPS Status](https://img.shields.io/badge/Status-24%2F7%20Online-brightgreen)
@@ -14,81 +14,118 @@
 ║  Username: Mikasa                                   ║
 ║  Password: Eren@Home$123                            ║
 ║  Status:   24/7 Active                              ║
-║  Access:   SSH, Web Terminal, VS Code, ttyd         ║
+║  Access:   SSH, RDP, Web Terminal, VS Code, ttyd    ║
 ╚════════════════════════════════════════════════════╝
 ```
 
 ---
 
-## 🚀 Quick Start - 3 Methods for 24/7 VPS
+## ⚠️ Read this first - GitHub ToS Compliance
 
-### Method 1: GitHub Actions (Recommended for True 24/7)
+GitHub-hosted Actions runners stop after **6 hours** and GitHub's Terms of Service forbid using Actions as an always-on server or crypto/relay host. 
 
-This is the **best way to get a free 24/7 VPS** that auto-restarts every 5 hours.
+So this repo provides **two compliant options**:
 
-1. **Fork / Push this repo to GitHub**
-2. Go to **Actions tab** → Select `FreeVPS Mark1.3 - 24/7 VPS` → Click **Run workflow**
-3. Wait for workflow to start (1-2 min)
-4. Check logs for access:
-   - **tmate SSH**: Look for `SSH: ssh <tmate-command>` in logs (immediate access)
-   - **Web Dashboard**: Port 8080 (Mikasa / Eren@Home$123)
-   - **Tailscale IP**: If you set `TAILSCALE_AUTHKEY` secret, use `ssh mikasa@<tailscale-ip>`
+1. **Manually started, time-limited dev box (up to 6h per run)** - Uses Cloudflare Tunnels for RDP+SSH, no auto-restart loop (see `workflows/vps.yml` / Option A). **This is the ToS-compliant way to use GitHub Actions.**
 
-**How 24/7 works:**
-- Workflow runs for 5h50m (GitHub limit is 6h)
-- Auto-restarts every 5 hours via cron `0 */5 * * *`
-- Heartbeat checks every 5 min, auto-restarts services if down
-- Optional: Add `GH_PAT` secret for instant restart via API
+2. **Real 24/7 box via Docker** - Run on a host you control (home server, Oracle Cloud free tier, cheap VPS). This is genuine 24/7 with `restart: unless-stopped` (Option B).
 
-**Required Secrets (optional but recommended):**
-- `TAILSCALE_AUTHKEY` - For persistent VPN SSH (get from https://login.tailscale.com/admin/settings/keys)
-- `NGROK_AUTH_TOKEN` - For public URLs (get from https://dashboard.ngrok.com/get-started/your-authtoken)
-- `GH_PAT` - GitHub Personal Access Token with `workflow` scope for instant auto-restart
+3. **Extended 24/7 via auto-restart workflow** - Optional workflow `.github/workflows/vps-24-7.yml` that auto-restarts every 5h via cron for true 24/7 (Option C). Use with caution and only if you understand ToS - best combined with Tailscale for persistent IP.
 
-### Method 2: Local Docker (24/7 on your machine)
+**Default login is `Mikasa`**; the password (`Eren@Home$123`) is **never hardcoded in workflows** for the RDP version — you supply it as a secret `VPS_PASS`. For the web dashboard, it's configured via env but bcrypt-hashed.
+
+---
+
+## 🚀 Quick Start - 4 Methods
+
+### Option A — GitHub Actions Dev Box (RDP + SSH, up to ~6h, ToS-compliant)
+
+1. Repo → **Settings → Secrets and variables → Actions**
+   - New **repository secret**: `VPS_PASS` = `Eren@Home$123`
+   - (optional) New **variable**: `VPS_USER` = `Mikasa`
+2. Copy workflow into place (GitHub App tokens can't write to `.github/workflows` directly):
+   ```bash
+   mkdir -p .github/workflows && cp workflows/vps.yml .github/workflows/vps.yml
+   git add .github/workflows/vps.yml && git commit -m "Add VPS workflow" && git push
+   ```
+3. **Actions → Remote Dev Box (RDP + SSH) → Run workflow**, pick duration (max 350 min).
+4. Open the **"Start Cloudflare tunnels"** step log and copy the two `*.trycloudflare.com` hostnames.
+5. On your PC (install [`cloudflared`](https://github.com/cloudflare/cloudflared/releases)):
+   ```bash
+   # Desktop
+   cloudflared access tcp --hostname <RDP-HOST> --url localhost:3389
+   # then RDP client -> localhost:3389, user Mikasa, pass Eren@Home$123
+
+   # Shell
+   cloudflared access tcp --hostname <SSH-HOST> --url localhost:2222
+   ssh Mikasa@localhost -p 2222
+   ```
+
+### Option B — Real 24/7 Box (Docker, Recommended for True 24/7)
+
+Run on any always-on host: home server, Oracle Cloud free tier, a cheap VPS, etc.
 
 ```bash
-# Clone
-git clone https://github.com/arminnighter-spec/FreeVPS.Mark1.3.git
-cd FreeVPS.Mark1.3
+# Option B1: Our enhanced Docker (with dashboard)
+docker-compose up -d --build
+# Access:
+# - Dashboard: http://<host>:8080 (Mikasa / Eren@Home$123)
+# - ttyd: http://<host>:7681
+# - VS Code: http://<host>:8081
+# - SSH: ssh mikasa@<host> -p 2222
 
-# Start 24/7 VPS
-docker-compose up -d
-
-# Access
-# Dashboard: http://localhost:8080 (Mikasa / Eren@Home$123)
-# ttyd: http://localhost:7681 (mikasa / Eren@Home$123)
-# VS Code: http://localhost:8081 (password: Eren@Home$123)
-# SSH: ssh mikasa@localhost -p 2222
-
-# Logs
-docker-compose logs -f
-
-# Stop
-docker-compose down
+# Option B2: Minimal RDP desktop from original
+cd docker
+cp .env.example .env      # set VPS_PASS=Eren@Home$123   (quote it in shells)
+docker compose up -d --build
+# - Web desktop (noVNC): http://<host>:6080/vnc.html
+# - SSH: ssh Mikasa@<host> -p 2222
 ```
 
-### Method 3: Direct Local Run
+Data persists in the `vps-home` volume, and `restart: unless-stopped` brings it back after reboots.
+
+### Option C — 24/7 Auto-Restart Workflow (Extended)
+
+This uses `.github/workflows/vps-24-7.yml` which **auto-restarts every 5 hours via cron** to achieve 24/7.
+
+1. **Fork / Push this repo**
+2. Go to **Actions → FreeVPS Mark1.3 - 24/7 VPS → Run workflow**
+3. Check logs for:
+   - **tmate SSH**: `SSH: ssh <tmate-command>` (immediate)
+   - **Tailscale IP**: if `TAILSCALE_AUTHKEY` secret set → `ssh mikasa@<tailscale-ip>` (persistent!)
+   - **Ngrok URLs**: if `NGROK_AUTH_TOKEN` set → public https URLs
+   - **Dashboard**: Port 8080
+
+**How 24/7 works:**
+- Runs 5h50m (limit 6h), then cron `0 */5 * * *` restarts
+- Heartbeat every 5 min, auto-restarts services
+- Optional `GH_PAT` secret for instant API restart
+
+**Secrets for Option C:**
+- `TAILSCALE_AUTHKEY` - Persistent VPN (https://login.tailscale.com/admin/settings/keys)
+- `NGROK_AUTH_TOKEN` - Public URLs (https://dashboard.ngrok.com/get-started/your-authtoken)
+- `GH_PAT` - PAT with workflow scope for instant restart
+
+### Option D — Direct Local Run (Fastest)
 
 ```bash
 # Install deps
 npm install
-bash scripts/setup-vps.sh   # Creates user Mikasa
+bash scripts/setup-vps.sh   # Creates user Mikasa with Eren@Home$123
 
 # Start all services 24/7
 ./start-vps.sh start
 
 # Or just main dashboard
 npm start
-
 # Access http://localhost:8080
 # Login: Mikasa / Eren@Home$123
 
-# Other commands
-./start-vps.sh status   # Check status
-./start-vps.sh logs     # View logs
-./start-vps.sh stop     # Stop all
-./start-vps.sh keepalive # Enter 24/7 loop
+# Commands
+./start-vps.sh status
+./start-vps.sh logs
+./start-vps.sh stop
+./start-vps.sh keepalive
 ```
 
 ---
@@ -99,79 +136,69 @@ npm start
 |---------|----------|----------|------|-----|
 | **Main Dashboard** | `Mikasa` | `Eren@Home$123` | 8080 | http://localhost:8080 |
 | **System User** | `mikasa` / `Mikasa` | `Eren@Home$123` | 22 | ssh mikasa@localhost |
+| **RDP (GitHub Actions)** | `Mikasa` | `Eren@Home$123` (via secret) | 3389 | via Cloudflare Tunnel |
 | **ttyd Terminal** | `mikasa` | `Eren@Home$123` | 7681 | http://localhost:7681 |
 | **code-server** | - | `Eren@Home$123` | 8081 | http://localhost:8081 |
+| **Docker noVNC** | `Mikasa` | `Eren@Home$123` | 6080 | http://localhost:6080/vnc.html |
 
 Both `Mikasa` (capital M) and `mikasa` (lowercase) users are created. Lowercase is primary for Linux compatibility.
 
 ---
 
-## 📡 Access Methods Explained
+## 📡 Access Methods Detailed
 
-### 1. Web Dashboard (Main)
+### 1. Web Dashboard (Main - Option C/D)
 - **URL**: http://localhost:8080
-- **Features**:
-  - 📊 Real-time system stats (CPU, RAM, Disk, Uptime)
-  - 💻 Interactive Web Terminal (xterm.js + WebSocket + node-pty)
-  - 📁 File Manager
-  - ⚙️ Process Manager
-  - 🚀 Quick command executor
-  - 🔐 Secure login with bcrypt
+- Features: Real-time stats, interactive terminal (xterm.js + WS), file manager, process manager, quick exec, bcrypt auth
+- Login: Mikasa / Eren@Home$123
 
-### 2. SSH Access
+### 2. RDP Desktop (Option A - GitHub Actions)
+- Via Cloudflare Tunnel: `cloudflared access tcp --hostname <RDP-HOST> --url localhost:3389` then RDP to localhost:3389
+- XFCE4 desktop, Firefox preinstalled
+
+### 3. SSH Access
 ```bash
 # Local Docker
 ssh mikasa@localhost -p 2222
-# Password: Eren@Home$123
+
+# GitHub Actions + Cloudflare
+cloudflared access tcp --hostname <SSH-HOST> --url localhost:2222
+ssh Mikasa@localhost -p 2222
 
 # GitHub Actions + Tailscale (persistent IP, best for 24/7)
 ssh mikasa@<tailscale-ip>
-# Get Tailscale IP from Actions logs
 
-# GitHub Actions + tmate (temporary, check Actions logs)
-# Look for: ssh <tmate-connection-string>
+# GitHub Actions + tmate (temporary)
+# Use command from Actions logs
 ```
 
-### 3. ttyd - Web Terminal
-- URL: http://localhost:7681
-- Auth: mikasa / Eren@Home$123
-- Full bash terminal in browser
+### 4. ttyd - Web Terminal
+- http://localhost:7681, auth mikasa / Eren@Home$123
 
-### 4. code-server - VS Code in Browser
-- URL: http://localhost:8081
-- Password: Eren@Home$123
-- Full VS Code experience
+### 5. code-server - VS Code
+- http://localhost:8081, password Eren@Home$123
 
-### 5. Tailscale (Recommended for 24/7 Persistent SSH)
-- Private VPN that gives you a stable IP
-- Setup: Create auth key at https://login.tailscale.com/admin/settings/keys
-- Add as `TAILSCALE_AUTHKEY` secret in GitHub repo
-- Workflow will auto-connect and show IP in logs
-- Then SSH from anywhere: `ssh mikasa@<tailscale-ip>`
+### 6. Tailscale (Recommended for 24/7 Persistent SSH)
+- Private VPN stable IP
+- Set `TAILSCALE_AUTHKEY` secret, workflow auto-connects, IP in logs
 
-### 6. Ngrok (Public URLs)
-- Exposes your local ports to internet with public URLs
-- Setup: Get token from https://dashboard.ngrok.com/get-started/your-authtoken
-- Add as `NGROK_AUTH_TOKEN` secret
-- Workflow will show URLs like `https://xxxx.ngrok.io -> localhost:8080`
+### 7. Ngrok (Public URLs)
+- Set `NGROK_AUTH_TOKEN`, get https://xxxx.ngrok.io URLs
 
 ---
 
 ## 🔄 How 24/7 Persistence Works
 
-GitHub Actions has a 6-hour limit per run, but we achieve 24/7 via:
+**Compliant way (Option A):** Manual runs up to 6h, no auto-restart.
 
-1. **Cron Schedule**: `0 */5 * * *` - Restarts workflow every 5 hours automatically
-2. **Heartbeat Loop**: Checks services every 5 min, restarts if down
-3. **Auto-Restart Logic**: Tries to trigger new workflow via API if `GH_PAT` secret set
-4. **Docker Restart Policy**: `unless-stopped` for local Docker
-5. **Service Monitoring**: Dashboard, ttyd, code-server auto-restart on failure
-6. **External Ping (Optional)**: Use UptimeRobot to ping your ngrok URL every 5 min
+**Real 24/7 (Option B):** Docker `restart: unless-stopped` on your own host.
 
-**For 100% 24/7:**
-- Enable Tailscale + Ngrok secrets
-- Add UptimeRobot monitor for your ngrok URL
-- Workflow will never truly die, just restart every 5h
+**Extended 24/7 (Option C):**
+1. Cron `0 */5 * * *` restarts workflow every 5h
+2. Heartbeat every 5 min restarts services
+3. `GH_PAT` for API instant restart
+4. Tailscale keeps same IP across restarts
+5. UptimeRobot ping optional
 
 ---
 
@@ -179,126 +206,98 @@ GitHub Actions has a 6-hour limit per run, but we achieve 24/7 via:
 
 ```
 FreeVPS.Mark1.3/
-├── server.js                 # Main dashboard server (Express + WS + node-pty)
-├── package.json              # Dependencies
-├── start-vps.sh              # 24/7 launcher script
-├── Dockerfile                # Docker image
-├── docker-compose.yml        # Docker Compose 24/7
-├── .env.example              # Env template
-├── config/
-│   └── vps-config.json       # VPS configuration
+├── server.js                 # Main dashboard (Express + WS)
+├── package.json
+├── start-vps.sh              # 24/7 launcher
+├── Dockerfile                # Enhanced Docker (dashboard+ttyd+code)
+├── docker-compose.yml        # Enhanced compose
+├── docker/                   # Original RDP desktop
+│   ├── Dockerfile
+│   ├── docker-compose.yml
+│   ├── entrypoint.sh
+│   └── .env.example
+├── workflows/
+│   └── vps.yml               # Compliant RDP+SSH Cloudflare workflow
+├── .github/workflows/
+│   ├── vps-24-7.yml          # Extended 24/7 auto-restart
+│   └── vps.yml (copy from workflows/vps.yml)
+├── config/vps-config.json
 ├── scripts/
-│   ├── setup-vps.sh          # User creation (Mikasa) + setup
-│   └── install.sh            # Dependency installer
+│   ├── setup-vps.sh          # Creates Mikasa
+│   ├── create-user.sh
+│   ├── install.sh
+│   └── keepalive.sh
 ├── public/
-│   ├── login.html            # Login page (Mikasa / Eren@Home$123)
-│   └── dashboard.html        # Main dashboard with terminal
-├── src/
-│   └── monitor.js            # System monitor module
-├── keepalive/
-│   ├── keepalive.js          # Node keepalive service
-│   ├── uptime-monitor.sh     # Bash monitor
-│   ├── heartbeat.log         # Heartbeat logs
-│   └── uptime.log            # Uptime history
-└── .github/
-    └── workflows/
-        └── vps-24-7.yml      # 24/7 GitHub Actions workflow
+│   ├── login.html            # Mikasa / Eren@Home$123
+│   ├── dashboard.html
+│   └── index.html
+├── src/monitor.js
+└── keepalive/
+    ├── keepalive.js
+    └── uptime-monitor.sh
 ```
 
 ---
 
-## 🛠️ Manual Setup (if scripts fail)
+## 🛠️ Manual Setup
 
 ```bash
-# Create user Mikasa
 sudo useradd -m -s /bin/bash mikasa
 echo "mikasa:Eren@Home\$123" | sudo chpasswd
 sudo usermod -aG sudo mikasa
-
-# Also try capital
 sudo useradd -m -s /bin/bash Mikasa 2>/dev/null || true
 echo "Mikasa:Eren@Home\$123" | sudo chpasswd 2>/dev/null || true
-
-# Install essentials
 sudo apt update && sudo apt install -y curl wget git nodejs npm ttyd openssh-server
-
-# Install npm deps
 npm install
-
-# Start
 PORT=8080 VPS_USER=Mikasa VPS_PASS='Eren@Home$123' node server.js
 ```
 
 ---
 
-## 🔒 Security Notes
+## 🔒 Security
 
-- ✅ Password hashed with bcrypt in dashboard
-- ✅ Session-based auth with httpOnly cookies
-- ✅ SSH password auth enabled (change in production)
-- ⚠️ Default credentials are `Mikasa / Eren@Home$123` as requested - **change in production via .env**
-- ⚠️ For public deployments, set `SESSION_SECRET` env and enable HTTPS
-- 💡 Use GitHub Secrets for tokens, never commit them
-- 💡 Enable UFW: `sudo ufw allow 22,8080,7681,8081/tcp && sudo ufw enable`
+- ✅ Password bcrypt hashed in dashboard
+- ✅ Session httpOnly cookies
+- ✅ SSH password auth (change in prod)
+- ⚠️ Default creds Mikasa / Eren@Home$123 - change via .env / secrets
+- 💡 Use GitHub Secrets for tokens
+- 💡 Enable UFW: `sudo ufw allow 22,8080,7681,8081,3389,6080/tcp && sudo ufw enable`
+- 💡 Prefer reverse proxy with TLS (Caddy/Traefik) or Cloudflare Tunnel for public
 
 ---
 
-## 📊 Monitoring 24/7 Status
+## 📊 Monitoring
 
-- **Dashboard**: http://localhost:8080/api/stats (after login)
-- **Health**: http://localhost:8080/health (public)
-- **Heartbeat Log**: `keepalive/heartbeat.log`
-- **Uptime Log**: `keepalive/uptime.log`
-- **Logs**: `/tmp/freevps-dashboard.log`, `/tmp/ttyd.log`, `/tmp/code-server.log`
-
-Use Uptime Kuma (included in docker-compose monitoring profile):
-```bash
-docker-compose --profile monitoring up -d
-# Access http://localhost:3001
-```
+- Dashboard: /api/stats (after login)
+- Health: /health (public)
+- Heartbeat: keepalive/heartbeat.log
+- Logs: /tmp/freevps-dashboard.log, /tmp/ttyd.log, /tmp/code-server.log
+- Uptime Kuma: `docker-compose --profile monitoring up -d` → http://localhost:3001
 
 ---
 
 ## ❓ FAQ
 
-**Q: How is this 24/7 if GitHub Actions limit is 6h?**
-A: Workflow auto-restarts every 5h via cron schedule. With Tailscale, you keep same IP across restarts, so SSH stays persistent.
+**Q: How is this 24/7 if limit 6h?**
+A: Option A is up to 6h manual (ToS compliant). Option B Docker is real 24/7. Option C auto-restarts every 5h via cron + Tailscale keeps IP.
 
-**Q: Can I get a public IP?**
-A: Yes via Ngrok (set `NGROK_AUTH_TOKEN` secret) or Tailscale (private but persistent).
+**Q: Public IP?**
+A: Via Ngrok (NGROK_AUTH_TOKEN) or Cloudflare Tunnel (Option A) or Tailscale private.
 
-**Q: Will my files persist across restarts?**
-A: In GitHub Actions, workspace is ephemeral but you can commit to repo or use artifacts. For persistence, use Docker locally with volumes.
+**Q: Files persist?**
+A: GitHub Actions ephemeral, use Docker volumes for persistence, or commit/artifacts.
 
-**Q: How to keep files in GitHub Actions?**
-A: Add to repo, or use `actions/upload-artifact`, or sync to external storage.
-
-**Q: Username is Mikasa but login fails?**
-A: Try `mikasa` lowercase for system SSH/ttyd, and `Mikasa` capital for web dashboard. Both should work.
-
----
-
-## 🤝 Contributing
-
-PRs welcome! This is Mark1.3 - next is Mark2.5 😄
+**Q: Username fails?**
+A: Try mikasa lowercase for system, Mikasa capital for dashboard. Both created.
 
 ---
 
 ## 📜 License
 
-MIT - Free for all
+MIT
 
 ---
 
-## 🙏 Credits
+**Enjoy your VPS, Mikasa!** 🚀 Built with GitHub Actions, Tailscale, Ngrok, ttyd, code-server, tmate, Cloudflare, Node.js.
 
-Built for 24/7 free VPS hosting using:
-- GitHub Actions (free 2000 min/month)
-- Tailscale (free VPN)
-- Ngrok (free tunnels)
-- ttyd + code-server + tmate
-- Node.js + Express + xterm.js
-
-**Enjoy your 24/7 VPS, Mikasa!** 🚀
-
-> "nothing in here bro Mark 2.5" → Now it's full Mark1.3 24/7 💪
+> "nothing in here bro Mark 2.5" → Now full Mark1.3 24/7 💪

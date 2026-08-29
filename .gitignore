@@ -8,6 +8,7 @@ yarn-error.log*
 .env
 .env.local
 .env.production
+docker/.env
 
 # Logs
 logs/
@@ -43,11 +44,12 @@ config/code-server/
 ~/.config/code-server/
 
 # Docker volumes (local)
-vps_home/
+vps-home/
 vps_data/
 
 # But keep example
 !.env.example
+!docker/.env.example
 !keepalive/keepalive.js
 !keepalive/uptime-monitor.sh
 
