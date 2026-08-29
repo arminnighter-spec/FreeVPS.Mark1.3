@@ -1,0 +1,309 @@
+<!DOCTYPE html>
+<html lang="en">
+<head>
+<meta charset="UTF-8">
+<meta name="viewport" content="width=device-width, initial-scale=1.0">
+<title>FreeVPS Mark1.3 - Dashboard</title>
+<link rel="stylesheet" href="https://cdn.jsdelivr.net/npm/xterm@5.3.0/css/xterm.css" />
+<style>
+*{margin:0;padding:0;box-sizing:border-box;font-family:'Segoe UI',system-ui,sans-serif}
+body{background:#010409;color:#e6edf3;min-height:100vh}
+.navbar{background:#0d1117;border-bottom:1px solid #21262d;padding:0 24px;height:64px;display:flex;align-items:center;justify-content:space-between;position:sticky;top:0;z-index:100;backdrop-filter:blur(12px)}
+.nav-left{display:flex;align-items:center;gap:20px}
+.logo{font-size:20px;font-weight:800;background:linear-gradient(90deg,#58a6ff,#bc8cff);-webkit-background-clip:text;-webkit-text-fill-color:transparent}
+.nav-links{display:flex;gap:8px}
+.nav-link{padding:8px 14px;border-radius:8px;font-size:13px;font-weight:600;color:#8b949e;cursor:pointer;transition:all 0.2s;text-decoration:none;border:1px solid transparent}
+.nav-link:hover{background:#21262d;color:#e6edf3}
+.nav-link.active{background:#1f6feb22;border-color:#1f6feb44;color:#58a6ff}
+.nav-right{display:flex;align-items:center;gap:12px}
+.user-badge{background:#161b22;border:1px solid #30363d;padding:6px 12px;border-radius:20px;font-size:12px;display:flex;align-items:center;gap:8px}
+.dot{width:8px;height:8px;background:#2ea043;border-radius:50%;box-shadow:0 0 8px #2ea043}
+.btn{padding:8px 16px;border-radius:8px;border:1px solid #30363d;background:#21262d;color:#e6edf3;font-size:13px;font-weight:600;cursor:pointer;transition:all 0.2s}
+.btn:hover{background:#30363d}
+.btn-primary{background:#1f6feb;border-color:#1f6feb;color:white}
+.btn-primary:hover{background:#1a5fd1}
+.main{padding:24px;max-width:1600px;margin:0 auto}
+.grid{display:grid;grid-template-columns:repeat(auto-fit,minmax(280px,1fr));gap:16px;margin-bottom:24px}
+.card{background:#0d1117;border:1px solid #21262d;border-radius:12px;padding:20px;transition:all 0.2s}
+.card:hover{border-color:#30363d;transform:translateY(-1px)}
+.card h3{font-size:12px;text-transform:uppercase;letter-spacing:0.5px;color:#8b949e;margin-bottom:12px;font-weight:700;display:flex;align-items:center;gap:8px}
+.stat-value{font-size:24px;font-weight:800;margin-bottom:4px}
+.stat-sub{font-size:12px;color:#6e7681}
+.progress{height:6px;background:#21262d;border-radius:10px;margin-top:12px;overflow:hidden}
+.progress-bar{height:100%;background:linear-gradient(90deg,#1f6feb,#8957e5);border-radius:10px;transition:width 1s}
+.terminal-wrap{background:#0d1117;border:1px solid #21262d;border-radius:12px;overflow:hidden;margin-bottom:24px}
+.terminal-header{background:#161b22;padding:12px 16px;display:flex;align-items:center;justify-content:space-between;border-bottom:1px solid #21262d}
+.terminal-header h3{font-size:13px;font-weight:700;display:flex;align-items:center;gap:8px}
+.terminal-actions{display:flex;gap:8px}
+#terminal{height:420px;padding:8px;background:#010409}
+.tabs{display:flex;gap:8px;margin-bottom:16px;border-bottom:1px solid #21262d;padding-bottom:0}
+.tab{padding:10px 16px;font-size:13px;font-weight:600;color:#8b949e;cursor:pointer;border-bottom:2px solid transparent;transition:all 0.2s}
+.tab.active{color:#58a6ff;border-bottom-color:#1f6feb}
+.tab-content{display:none}
+.tab-content.active{display:block}
+.cmd-input{display:flex;gap:8px;margin-top:12px}
+.cmd-input input{flex:1;padding:12px 16px;background:#010409;border:1px solid #30363d;border-radius:8px;color:#e6edf3;font-family:monospace;font-size:13px}
+.cmd-input button{padding:12px 20px}
+.log{background:#010409;border:1px solid #21262d;border-radius:8px;padding:12px;font-family:monospace;font-size:12px;max-height:300px;overflow:auto;white-space:pre-wrap}
+.file-list{max-height:400px;overflow:auto}
+.file-item{display:flex;align-items:center;gap:10px;padding:10px 12px;border-radius:8px;cursor:pointer;transition:all 0.1s}
+.file-item:hover{background:#161b22}
+.file-icon{width:24px;text-align:center}
+.process-table{width:100%;border-collapse:collapse;font-size:13px}
+.process-table th{color:#8b949e;font-weight:600;text-align:left;padding:10px 12px;border-bottom:1px solid #21262d;font-size:11px;text-transform:uppercase}
+.process-table td{padding:8px 12px;border-bottom:1px solid #0d1117}
+.badge{display:inline-block;padding:2px 8px;border-radius:12px;font-size:11px;font-weight:600}
+.badge-green{background:#2ea04322;color:#56d364;border:1px solid #2ea04344}
+.badge-blue{background:#1f6feb22;color:#58a6ff;border:1px solid #1f6feb44}
+@media(max-width:768px){.navbar{padding:0 12px}.main{padding:12px}.grid{grid-template-columns:1fr}}
+</style>
+</head>
+<body>
+<nav class="navbar">
+  <div class="nav-left">
+    <div class="logo">FreeVPS Mark1.3</div>
+    <div class="nav-links">
+      <div class="nav-link active" data-tab="overview">Overview</div>
+      <div class="nav-link" data-tab="terminal">Terminal</div>
+      <div class="nav-link" data-tab="files">Files</div>
+      <div class="nav-link" data-tab="processes">Processes</div>
+    </div>
+  </div>
+  <div class="nav-right">
+    <div class="user-badge"><span class="dot"></span> <span id="userDisplay">Mikasa</span> • <span id="uptimeDisplay">00:00:00</span></div>
+    <button class="btn" onclick="logout()">Logout</button>
+  </div>
+</nav>
+
+<div class="main">
+  <!-- Overview Tab -->
+  <div id="overview" class="tab-content active">
+    <div class="grid" id="statsGrid">
+      <div class="card"><h3>🖥️ CPU Usage</h3><div class="stat-value" id="cpuLoad">--%</div><div class="stat-sub" id="cpuModel">Loading...</div><div class="progress"><div class="progress-bar" id="cpuBar" style="width:0%"></div></div></div>
+      <div class="card"><h3>💾 Memory</h3><div class="stat-value" id="memUsage">--%</div><div class="stat-sub" id="memDetail">-- / --</div><div class="progress"><div class="progress-bar" id="memBar" style="width:0%"></div></div></div>
+      <div class="card"><h3>💿 Disk</h3><div class="stat-value" id="diskUse">--%</div><div class="stat-sub" id="diskDetail">Loading...</div><div class="progress"><div class="progress-bar" id="diskBar" style="width:0%"></div></div></div>
+      <div class="card"><h3>⏱️ Uptime</h3><div class="stat-value" id="uptime">--</div><div class="stat-sub" id="osInfo">Loading OS...</div><div style="margin-top:12px;display:flex;gap:6px"><span class="badge badge-green">24/7</span><span class="badge badge-blue">Mark1.3</span></div></div>
+    </div>
+
+    <div class="grid">
+      <div class="card">
+        <h3>🚀 Quick Actions</h3>
+        <div style="display:grid;grid-template-columns:1fr 1fr;gap:8px;margin-top:12px">
+          <button class="btn btn-primary" onclick="switchTab('terminal')">Open Terminal</button>
+          <button class="btn" onclick="openTTYD()">ttyd Terminal</button>
+          <button class="btn" onclick="openCodeServer()">VS Code</button>
+          <button class="btn" onclick="refreshStats()">Refresh Stats</button>
+        </div>
+        <div style="margin-top:16px">
+          <h4 style="font-size:12px;color:#8b949e;margin-bottom:8px">ACCESS METHODS</h4>
+          <div class="log" id="accessInfo">Loading access info...</div>
+        </div>
+      </div>
+      <div class="card">
+        <h3>📡 VPS Info</h3>
+        <div class="log" id="vpsInfo" style="margin-top:12px">
+Hostname: loading...
+Platform: loading...
+User: Mikasa
+Status: Online
+        </div>
+        <div style="margin-top:12px">
+          <h4 style="font-size:12px;color:#8b949e;margin-bottom:8px">KEEP-ALIVE</h4>
+          <div style="display:flex;gap:8px">
+            <span class="badge badge-green">● GitHub Actions Active</span>
+            <span class="badge badge-blue">● Auto Restart Enabled</span>
+          </div>
+        </div>
+      </div>
+    </div>
+
+    <div class="terminal-wrap">
+      <div class="terminal-header"><h3>💻 Quick Command Executor</h3></div>
+      <div style="padding:16px">
+        <div class="cmd-input">
+          <input type="text" id="quickCmd" placeholder="Enter command e.g. ls -la, htop, df -h" onkeydown="if(event.key==='Enter')execQuickCmd()">
+          <button class="btn btn-primary" onclick="execQuickCmd()">Run</button>
+        </div>
+        <div class="log" id="quickOutput" style="margin-top:12px;min-height:120px">Ready to execute commands as Mikasa...</div>
+      </div>
+    </div>
+  </div>
+
+  <!-- Terminal Tab -->
+  <div id="terminal-tab" class="tab-content">
+    <div class="terminal-wrap">
+      <div class="terminal-header">
+        <h3>🖥️ Interactive Web Terminal - Mikasa@FreeVPS</h3>
+        <div class="terminal-actions">
+          <button class="btn" onclick="clearTerminal()">Clear</button>
+          <button class="btn" onclick="reconnectTerminal()">Reconnect</button>
+          <span class="badge badge-green" id="termStatus">● Connected</span>
+        </div>
+      </div>
+      <div id="terminal"></div>
+    </div>
+    <div class="card" style="margin-top:16px">
+      <h3>Tips</h3>
+      <div style="font-size:13px;color:#8b949e;line-height:1.6;margin-top:8px">
+        • This is a full bash terminal running as user <b>Mikasa</b><br>
+        • Use it to install packages, run servers, manage files<br>
+        • For VS Code: click "VS Code" button or access port 8081<br>
+        • For raw ttyd: access port 7681<br>
+        • All sessions are persistent while VPS is online (24/7)
+      </div>
+    </div>
+  </div>
+
+  <!-- Files Tab -->
+  <div id="files" class="tab-content">
+    <div class="card">
+      <h3>📁 File Manager</h3>
+      <div style="display:flex;gap:8px;margin:12px 0">
+        <input type="text" id="filePath" value="/home" style="flex:1;padding:10px 14px;background:#010409;border:1px solid #30363d;border-radius:8px;color:#e6edf3;font-family:monospace">
+        <button class="btn btn-primary" onclick="loadFiles()">Go</button>
+        <button class="btn" onclick="goHome()">Home</button>
+      </div>
+      <div class="file-list" id="fileList">Loading...</div>
+    </div>
+  </div>
+
+  <!-- Processes Tab -->
+  <div id="processes" class="tab-content">
+    <div class="card">
+      <h3>⚙️ Running Processes</h3>
+      <div style="overflow:auto;margin-top:12px">
+        <table class="process-table"><thead><tr><th>PID</th><th>Name</th><th>User</th><th>CPU%</th><th>MEM%</th></tr></thead><tbody id="processList"><tr><td colspan=5>Loading...</td></tr></tbody></table>
+      </div>
+    </div>
+  </div>
+</div>
+
+<script src="https://cdn.jsdelivr.net/npm/xterm@5.3.0/lib/xterm.js"></script>
+<script src="https://cdn.jsdelivr.net/npm/xterm-addon-fit@0.8.0/lib/xterm-addon-fit.js"></script>
+<script>
+let term, fitAddon, ws;
+let currentPath = '/home';
+
+async function checkAuth(){
+  const r = await fetch('/api/session');
+  const d = await r.json();
+  if(!d.authenticated) window.location.href='/login.html';
+  else document.getElementById('userDisplay').textContent = d.user;
+}
+checkAuth();
+
+// Tabs
+document.querySelectorAll('.nav-link').forEach(el=>{
+  el.addEventListener('click',()=>{
+    document.querySelectorAll('.nav-link').forEach(n=>n.classList.remove('active'));
+    el.classList.add('active');
+    switchTab(el.dataset.tab);
+  });
+});
+function switchTab(name){
+  document.querySelectorAll('.tab-content').forEach(c=>c.classList.remove('active'));
+  const map = {overview:'overview',terminal:'terminal-tab',files:'files',processes:'processes'};
+  document.getElementById(map[name]).classList.add('active');
+  if(name==='terminal' && !term) initTerminal();
+  if(name==='files') loadFiles();
+  if(name==='processes') loadProcesses();
+}
+
+// Stats
+async function refreshStats(){
+  try{
+    const res = await fetch('/api/stats');
+    const s = await res.json();
+    document.getElementById('cpuLoad').textContent = s.cpu.load+'%';
+    document.getElementById('cpuModel').textContent = s.cpu.model.substring(0,40)+' • '+s.cpu.cores+' cores';
+    document.getElementById('cpuBar').style.width = s.cpu.load+'%';
+    document.getElementById('memUsage').textContent = s.memory.usage;
+    document.getElementById('memDetail').textContent = s.memory.used+' / '+s.memory.total+' (free '+s.memory.free+')';
+    document.getElementById('memBar').style.width = s.memory.usage;
+    const disk = s.disk[0];
+    if(disk){
+      document.getElementById('diskUse').textContent = disk.use;
+      document.getElementById('diskDetail').textContent = disk.used+' / '+disk.size+' at '+disk.mount;
+      document.getElementById('diskBar').style.width = disk.use;
+    }
+    document.getElementById('uptime').textContent = s.uptime.formatted;
+    document.getElementById('osInfo').textContent = s.os.distro+' '+s.os.release+' ('+s.os.arch+')';
+    document.getElementById('vpsInfo').textContent = `Hostname: ${s.os.hostname}\nPlatform: ${s.os.platform} ${s.os.distro}\nArch: ${s.os.arch}\nKernel: ${s.os.kernel}\nUser: Mikasa\nUptime: ${s.uptime.formatted}\nCPU: ${s.cpu.model}\nCores: ${s.cpu.cores}`;
+    document.getElementById('uptimeDisplay').textContent = s.uptime.formatted;
+    document.getElementById('accessInfo').textContent = `Web Dashboard: /dashboard.html\nWeb Terminal: / (WS /ws/terminal)\nttyd: http://localhost:7681 (if installed)\ncode-server: http://localhost:8081 (if installed)\nSSH: ssh Mikasa@<host> -p 22\nTailscale: Use Tailscale IP for persistent SSH\ntmate: Check GitHub Actions logs for session`;
+  }catch(e){console.error(e)}
+}
+refreshStats();
+setInterval(refreshStats,5000);
+
+// Quick exec
+async function execQuickCmd(){
+  const cmd = document.getElementById('quickCmd').value.trim();
+  if(!cmd) return;
+  const out = document.getElementById('quickOutput');
+  out.textContent = `$ ${cmd}\n⏳ Running...`;
+  try{
+    const res = await fetch('/api/exec',{method:'POST',headers:{'Content-Type':'application/json'},body:JSON.stringify({command:cmd})});
+    const data = await res.json();
+    out.textContent = `$ ${cmd}\n${data.stdout || ''}${data.stderr ? '\nERR: '+data.stderr : ''}${data.error ? '\nError: '+data.error : ''}\n[Exit: ${data.exitCode}]`;
+  }catch(e){ out.textContent = 'Error: '+e.message; }
+}
+
+// Terminal
+function initTerminal(){
+  term = new Terminal({cursorBlink:true,fontFamily:'monospace',fontSize:14,theme:{background:'#010409'}});
+  fitAddon = new FitAddon.FitAddon();
+  term.loadAddon(fitAddon);
+  term.open(document.getElementById('terminal'));
+  fitAddon.fit();
+  term.focus();
+  connectWS();
+  term.onData(d=>{ if(ws && ws.readyState===1) ws.send(d); });
+  window.addEventListener('resize',()=>fitAddon.fit());
+}
+function connectWS(){
+  const proto = location.protocol==='https:'?'wss':'ws';
+  ws = new WebSocket(`${proto}://${location.host}/ws/terminal`);
+  ws.onopen = ()=>{ document.getElementById('termStatus').textContent='● Connected'; document.getElementById('termStatus').className='badge badge-green'; };
+  ws.onmessage = e=>{ term.write(e.data); };
+  ws.onclose = ()=>{ document.getElementById('termStatus').textContent='● Disconnected'; document.getElementById('termStatus').className='badge'; term.write('\r\n[Disconnected] Reconnecting in 2s...\r\n'); setTimeout(connectWS,2000); };
+  ws.onerror = ()=>{ document.getElementById('termStatus').textContent='● Error'; };
+}
+function clearTerminal(){ term.clear(); }
+function reconnectTerminal(){ if(ws) ws.close(); connectWS(); }
+
+// Files
+async function loadFiles(){
+  const pathInput = document.getElementById('filePath');
+  currentPath = pathInput.value;
+  const list = document.getElementById('fileList');
+  list.innerHTML='Loading...';
+  try{
+    const res = await fetch('/api/files?path='+encodeURIComponent(currentPath));
+    const data = await res.json();
+    if(data.error) throw new Error(data.error);
+    currentPath = data.path;
+    pathInput.value = currentPath;
+    list.innerHTML = data.files.map(f=>`<div class="file-item" onclick="handleFileClick('${f.path.replace(/'/g,"\\'")}',${f.isDir})"><span class="file-icon">${f.isDir?'📁':'📄'}</span><span>${f.name}</span><span style="margin-left:auto;color:#6e7681;font-size:11px">${f.isDir?'DIR':'FILE'}</span></div>`).join('') || '<div style="color:#6e7681;padding:12px">Empty directory</div>';
+  }catch(e){ list.innerHTML='<div style="color:#ff7b72;padding:12px">Error: '+e.message+'</div>'; }
+}
+function handleFileClick(p,isDir){ if(isDir){ document.getElementById('filePath').value=p; loadFiles(); } }
+function goHome(){ document.getElementById('filePath').value='/home'; loadFiles(); }
+
+// Processes
+async function loadProcesses(){
+  const tbody = document.getElementById('processList');
+  tbody.innerHTML='<tr><td colspan=5>Loading...</td></tr>';
+  try{
+    const res = await fetch('/api/processes');
+    const data = await res.json();
+    tbody.innerHTML = data.list.map(p=>`<tr><td>${p.pid}</td><td>${p.name}</td><td>${p.user||'--'}</td><td>${p.cpu.toFixed(1)}%</td><td>${p.mem.toFixed(1)}%</td></tr>`).join('');
+  }catch(e){ tbody.innerHTML='<tr><td colspan=5>Error: '+e.message+'</td></tr>'; }
+}
+
+function openTTYD(){ window.open('/ttyd','_blank'); }
+function openCodeServer(){ window.open(':8081','_blank'); alert('If code-server is running, open port 8081. In GitHub Codespaces, check Ports tab.'); }
+async function logout(){ await fetch('/api/logout',{method:'POST'}); window.location.href='/login.html'; }
+</script>
+</body>
+</html>

@@ -1,0 +1,100 @@
+{
+  "version": "1.3.0",
+  "name": "FreeVPS Mark1.3",
+  "description": "24/7 Persistent VPS",
+  "credentials": {
+    "username": "Mikasa",
+    "username_lower": "mikasa",
+    "password": "Eren@Home$123",
+    "password_hint": "Eren@Home$123 - Change in production!",
+    "note": "Both Mikasa and mikasa users are created, lowercase is primary for Linux compatibility"
+  },
+  "services": {
+    "main_dashboard": {
+      "port": 8080,
+      "url": "http://localhost:8080",
+      "login_path": "/login.html",
+      "dashboard_path": "/dashboard.html",
+      "auth": {
+        "username": "Mikasa",
+        "password": "Eren@Home$123"
+      }
+    },
+    "ttyd": {
+      "port": 7681,
+      "url": "http://localhost:7681",
+      "auth": "mikasa:Eren@Home$123",
+      "description": "Web-based terminal with authentication"
+    },
+    "code_server": {
+      "port": 8081,
+      "url": "http://localhost:8081",
+      "password": "Eren@Home$123",
+      "description": "VS Code in browser"
+    },
+    "ssh": {
+      "port": 22,
+      "docker_port": 2222,
+      "username": "mikasa",
+      "password": "Eren@Home$123",
+      "command": "ssh mikasa@localhost -p 2222",
+      "github_actions_command": "ssh mikasa@<tailscale-ip> or use tmate session"
+    }
+  },
+  "persistence": {
+    "method": "github_actions",
+    "workflow_file": ".github/workflows/vps-24-7.yml",
+    "schedule": "0 */5 * * *",
+    "timeout_minutes": 350,
+    "auto_restart": true,
+    "keepalive_methods": [
+      "GitHub Actions cron every 5 hours",
+      "Docker restart: unless-stopped",
+      "Heartbeat loop every 5 minutes",
+      "Service auto-restart on failure",
+      "Optional: UptimeRobot ping",
+      "Optional: Tailscale for persistent IP"
+    ]
+  },
+  "access_methods": {
+    "github_actions": {
+      "description": "Primary 24/7 method",
+      "steps": [
+        "Push repo to GitHub",
+        "Go to Actions tab",
+        "Run workflow 'FreeVPS Mark1.3 - 24/7 VPS'",
+        "Use tmate SSH link from logs",
+        "Or connect via Tailscale IP if configured"
+      ]
+    },
+    "tailscale": {
+      "description": "Best for persistent SSH",
+      "setup": "Set TAILSCALE_AUTHKEY secret in GitHub repo",
+      "ssh_command": "ssh mikasa@<tailscale-ip>"
+    },
+    "ngrok": {
+      "description": "Expose local ports to internet",
+      "setup": "Set NGROK_AUTH_TOKEN secret",
+      "urls": "Check Actions logs for https://*.ngrok.io URLs"
+    },
+    "docker": {
+      "description": "Local 24/7 via Docker",
+      "command": "docker-compose up -d",
+      "access": "http://localhost:8080"
+    },
+    "local": {
+      "description": "Direct local run",
+      "command": "./start-vps.sh",
+      "access": "http://localhost:8080"
+    }
+  },
+  "security_notes": [
+    "Change password in production via .env file",
+    "Use GitHub Secrets for TAILSCALE_AUTHKEY and NGROK_AUTH_TOKEN",
+    "Enable UFW firewall in production",
+    "Consider fail2ban for SSH brute force protection",
+    "Main dashboard uses bcrypt for password hashing"
+  ],
+  "created": "2024",
+  "author": "FreeVPS Mark1.3"
+}

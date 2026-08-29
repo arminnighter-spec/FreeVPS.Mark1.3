@@ -1,0 +1,129 @@
+<!DOCTYPE html>
+<html lang="en">
+<head>
+<meta charset="UTF-8">
+<meta name="viewport" content="width=device-width, initial-scale=1.0">
+<title>FreeVPS Mark1.3 - Login</title>
+<style>
+*{margin:0;padding:0;box-sizing:border-box;font-family:'Segoe UI',system-ui,sans-serif}
+body{background:#0a0e13;color:#e6edf3;min-height:100vh;display:flex;align-items:center;justify-content:center;position:relative;overflow:hidden}
+body::before{content:'';position:absolute;width:800px;height:800px;background:radial-gradient(circle, rgba(88,166,255,0.15) 0%, transparent 70%);top:-200px;left:-200px;animation:float 20s infinite}
+body::after{content:'';position:absolute;width:600px;height:600px;background:radial-gradient(circle, rgba(188,140,255,0.12) 0%, transparent 70%);bottom:-150px;right:-150px;animation:float 25s infinite reverse}
+@keyframes float{0%,100%{transform:translate(0,0)}50%{transform:translate(30px,30px)}}
+.container{background:rgba(22,27,34,0.9);backdrop-filter:blur(20px);border:1px solid #30363d;border-radius:16px;padding:40px;width:100%;max-width:420px;box-shadow:0 16px 48px rgba(0,0,0,0.5);position:relative;z-index:1}
+.logo{text-align:center;margin-bottom:32px}
+.logo h1{font-size:28px;font-weight:700;letter-spacing:-0.5px;background:linear-gradient(90deg,#58a6ff,#bc8cff);-webkit-background-clip:text;-webkit-text-fill-color:transparent}
+.logo p{color:#8b949e;font-size:14px;margin-top:8px}
+.badge{display:inline-block;background:#1f6feb22;border:1px solid #1f6feb55;color:#58a6ff;padding:4px 10px;border-radius:20px;font-size:12px;margin-top:12px;font-weight:600}
+.form-group{margin-bottom:20px}
+.form-group label{display:block;font-size:13px;font-weight:600;color:#c9d1d9;margin-bottom:8px;text-transform:uppercase;letter-spacing:0.5px}
+.form-group input{width:100%;padding:14px 16px;background:#0d1117;border:1px solid #30363d;border-radius:10px;color:#e6edf3;font-size:15px;transition:all 0.2s;outline:none}
+.form-group input:focus{border-color:#1f6feb;background:#010409;box-shadow:0 0 0 3px rgba(31,111,235,0.2)}
+.form-group input::placeholder{color:#484f58}
+.btn{width:100%;padding:14px;background:linear-gradient(90deg,#1f6feb,#8957e5);border:none;border-radius:10px;color:white;font-weight:700;font-size:15px;cursor:pointer;transition:all 0.2s;letter-spacing:0.3px}
+.btn:hover{transform:translateY(-1px);box-shadow:0 8px 24px rgba(31,111,235,0.4)}
+.btn:active{transform:translateY(0)}
+.btn:disabled{opacity:0.6;cursor:not-allowed}
+.error{background:#f8514915;border:1px solid #f8514940;color:#ff7b72;padding:12px 16px;border-radius:10px;font-size:13px;margin-bottom:20px;display:none}
+.success{background:#2ea04315;border:1px solid #2ea04340;color:#56d364;padding:12px 16px;border-radius:10px;font-size:13px;margin-bottom:20px;display:none}
+.footer{text-align:center;margin-top:24px;color:#484f58;font-size:12px}
+.creds{margin-top:24px;background:#0d1117;border:1px dashed #30363d;border-radius:10px;padding:16px}
+.creds h4{font-size:12px;color:#8b949e;text-transform:uppercase;letter-spacing:0.5px;margin-bottom:10px}
+.creds code{display:block;background:#010409;padding:8px 12px;border-radius:6px;font-family:monospace;font-size:13px;color:#58a6ff;margin:4px 0}
+.status{position:fixed;top:20px;right:20px;background:#161b22;border:1px solid #30363d;padding:10px 16px;border-radius:30px;font-size:12px;display:flex;align-items:center;gap:8px;z-index:10}
+.dot{width:8px;height:8px;background:#2ea043;border-radius:50%;box-shadow:0 0 8px #2ea043;animation:pulse 2s infinite}
+@keyframes pulse{0%,100%{opacity:1}50%{opacity:0.5}}
+</style>
+</head>
+<body>
+<div class="status"><span class="dot"></span> VPS Online • 24/7</div>
+
+<div class="container">
+  <div class="logo">
+    <h1>FreeVPS Mark1.3</h1>
+    <p>24/7 Persistent Virtual Private Server</p>
+    <span class="badge">⚡ Always On • Secure • Fast</span>
+  </div>
+
+  <div id="error" class="error"></div>
+  <div id="success" class="success"></div>
+
+  <form id="loginForm">
+    <div class="form-group">
+      <label>Username</label>
+      <input type="text" id="username" placeholder="Enter username" value="Mikasa" required autocomplete="username">
+    </div>
+    <div class="form-group">
+      <label>Password</label>
+      <input type="password" id="password" placeholder="Enter password" value="Eren@Home$123" required autocomplete="current-password">
+    </div>
+    <button type="submit" class="btn" id="loginBtn">🔐 Login to VPS</button>
+  </form>
+
+  <div class="creds">
+    <h4>🔑 Default Credentials (from setup)</h4>
+    <code>Username: Mikasa</code>
+    <code>Password: Eren@Home$123</code>
+    <div style="margin-top:8px;font-size:11px;color:#6e7681;">Change these in .env for production!</div>
+  </div>
+
+  <div class="footer">
+    FreeVPS Mark1.3 • Built for 24/7 uptime<br>
+    GitHub Actions • Docker • Tailscale • ttyd
+  </div>
+</div>
+
+<script>
+const form = document.getElementById('loginForm');
+const errorEl = document.getElementById('error');
+const successEl = document.getElementById('success');
+const btn = document.getElementById('loginBtn');
+
+function showError(msg){
+  errorEl.textContent = msg;
+  errorEl.style.display='block';
+  successEl.style.display='none';
+}
+function showSuccess(msg){
+  successEl.textContent = msg;
+  successEl.style.display='block';
+  errorEl.style.display='none';
+}
+
+form.addEventListener('submit', async (e)=>{
+  e.preventDefault();
+  const username = document.getElementById('username').value.trim();
+  const password = document.getElementById('password').value;
+
+  btn.disabled=true;
+  btn.textContent='⏳ Authenticating...';
+
+  try{
+    const res = await fetch('/api/login',{
+      method:'POST',
+      headers:{'Content-Type':'application/json'},
+      body:JSON.stringify({username,password})
+    });
+    const data = await res.json();
+    if(res.ok && data.success){
+      showSuccess('✅ Login successful! Redirecting...');
+      setTimeout(()=>window.location.href='/dashboard.html',800);
+    }else{
+      showError(data.error || 'Invalid credentials');
+      btn.disabled=false;
+      btn.textContent='🔐 Login to VPS';
+    }
+  }catch(err){
+    showError('Connection error: '+err.message);
+    btn.disabled=false;
+    btn.textContent='🔐 Login to VPS';
+  }
+});
+
+// Check if already logged in
+fetch('/api/session').then(r=>r.json()).then(d=>{
+  if(d.authenticated) window.location.href='/dashboard.html';
+});
+</script>
+</body>
+</html>

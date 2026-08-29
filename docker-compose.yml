@@ -1,0 +1,62 @@
+version: '3.8'
+
+services:
+  freevps:
+    build: .
+    container_name: freevps-mark1.3
+    hostname: freevps-mark1-3
+    ports:
+      - "2222:22"     # SSH
+      - "8080:8080"   # Main Dashboard (Mikasa / Eren@Home$123)
+      - "7681:7681"   # ttyd Web Terminal
+      - "8081:8081"   # code-server VS Code
+    environment:
+      - VPS_USER=Mikasa
+      - VPS_PASS=Eren@Home$123
+      - PORT=8080
+    volumes:
+      - vps_home:/home/mikasa
+      - vps_data:/app/data
+      - ./keepalive:/app/keepalive
+    restart: unless-stopped
+    stdin_open: true
+    tty: true
+    # For 24/7 persistence
+    deploy:
+      resources:
+        limits:
+          cpus: '2'
+          memory: 4G
+        reservations:
+          cpus: '0.5'
+          memory: 512M
+
+  # Optional: Watchtower for auto-updates (keeps 24/7)
+  watchtower:
+    image: containrrr/watchtower
+    container_name: watchtower
+    volumes:
+      - /var/run/docker.sock:/var/run/docker.sock
+    command: --interval 3600 freevps-mark1.3
+    restart: unless-stopped
+    profiles:
+      - monitoring
+
+  # Optional: Uptime Kuma for monitoring 24/7 status
+  uptime-kuma:
+    image: louislam/uptime-kuma:1
+    container_name: uptime-kuma
+    ports:
+      - "3001:3001"
+    volumes:
+      - uptime-kuma:/app/data
+    restart: unless-stopped
+    profiles:
+      - monitoring
+
+volumes:
+  vps_home:
+    driver: local
+  vps_data:
+    driver: local
+  uptime-kuma:
