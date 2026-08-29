@@ -58,5 +58,6 @@ vps_data/
 
 # Tailscale
 tailscale.log
-.github/workflows/*
-!.github/workflows/.gitkeep
+
+# GitHub workflows - cannot be pushed via GitHub App token, keep in workflows/ folder
+.github/workflows/
